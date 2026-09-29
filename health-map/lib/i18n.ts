@@ -1,6 +1,8 @@
 import type { Language } from './model';
 export const copy = {
   zh: {
+    navigateToPlace: '导航到这里', navigationHelp: '通过高德地图步行导航。手机可唤起应用；电脑打开网页版后选择起点。',
+    sharedSelectHelp: '勾选备份即可在地图上显示，支持同时选择多份。', showShared: '在地图上显示', selectedShared: '已显示备份', sharedSelectionDeleted: '已删除的备份已从地图移除，其余勾选的备份继续显示；个人标注保持不变。',
     shared: '共享备份', sharedAnnotations: '备份中的标注', uploadShared: '上传共享备份', backupName: '备份名称', creator: '创建者', publicNotice: '名称、创建者和全部标注将公开，任何人都可以查看和下载。创建者名称为自填信息。',
     sharedDisabled: '共享服务未启用。配置公共备份接口地址后即可上传和查看。', sharedEmpty: '还没有共享备份', sharedLoading: '正在加载备份…', sharedLoadError: '备份读取失败，请重试。', refreshShared: '刷新列表', moreShared: '加载更多', sharedReadonly: '只读查看 · 个人标注未被更改', returnMine: '返回我的标注', sharedUploaded: '共享备份已上传', uploadingShared: '正在上传…', uploadFailed: '上传失败，请重试；填写的信息已保留。', sharedTooLarge: '共享备份不能超过 1 MB。', sharedRateLimit: '请求过于频繁，请稍后重试。', sharedAuthError: '共享服务的 GitHub 凭据不可用，请联系网站维护者。', sharedInvalid: '备份或填写的信息无效，请检查后重试。', sharedDeleted: '这份共享备份已被删除，地图已清空；个人标注保持不变。', sharedNotFound: '这份备份已不存在，请刷新列表。', downloadShared: '下载 JSON',
     campus: '四平路校区', local: '个人本地地图', resources: '健康资源', all: '全部', places: '地点', routes: '路线',
@@ -31,6 +33,8 @@ export const copy = {
     busyNotice: '先完成或取消当前操作，再开始新的标注。', languageError: '语言已切换，但偏好未能保存。', total: '条标注', backup: '本地备份', searchBusy: '搜索中…', source: '来源', editWalkingNote: '编辑节点后将作为手绘路线保存，预计时间会移除。',
   },
   en: {
+    navigateToPlace: 'Navigate here', navigationHelp: 'Walking directions with AMap. Open the app on mobile, or choose a starting point on the desktop website.',
+    sharedSelectHelp: 'Check backups to show their annotations together on the map.', showShared: 'Show on map', selectedShared: 'Backups shown', sharedSelectionDeleted: 'Deleted backups have been removed from the map. Other selected backups remain visible; your annotations are unchanged.',
     shared: 'Shared backups', sharedAnnotations: 'Backup annotations', uploadShared: 'Upload shared backup', backupName: 'Backup name', creator: 'Creator', publicNotice: 'The name, creator and all annotations will be public for anyone to view and download. Creator names are self-reported.',
     sharedDisabled: 'Sharing is not enabled. Configure the shared backup API URL to upload and browse.', sharedEmpty: 'No shared backups yet', sharedLoading: 'Loading backup…', sharedLoadError: 'Could not load backups. Please retry.', refreshShared: 'Refresh list', moreShared: 'Load more', sharedReadonly: 'Read-only · Your annotations are unchanged', returnMine: 'Back to my annotations', sharedUploaded: 'Shared backup uploaded', uploadingShared: 'Uploading…', uploadFailed: 'Upload failed. Retry; your form has been kept.', sharedTooLarge: 'Shared backups must not exceed 1 MB.', sharedRateLimit: 'Too many requests. Please try again later.', sharedAuthError: 'The sharing service’s GitHub credentials are unavailable. Contact the site maintainer.', sharedInvalid: 'Invalid backup or form. Please check and retry.', sharedDeleted: 'This shared backup was deleted. The map has been cleared; your annotations are unchanged.', sharedNotFound: 'This backup no longer exists. Refresh the list.', downloadShared: 'Download JSON',
     campus: 'Siping Campus', local: 'Personal local map', resources: 'Health resources', all: 'All', places: 'Places', routes: 'Routes',

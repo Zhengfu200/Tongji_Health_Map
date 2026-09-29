@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { HeartPulse, MapPin, Route as RouteIcon, Search, LocateFixed, Plus, Minus, Layers, X, Pencil, Trash2, ArrowLeft, Undo2, Check, ExternalLink, Navigation, ShieldCheck, Globe2, ArrowDownToLine, ArrowUpFromLine, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { CATEGORIES, CATEGORY_IDS, EMPTY_DATA, LANGUAGE_KEY, MAX_BACKUP_BYTES, S
 import { copy, type CopyKey } from '@/lib/i18n';
 import { SharedBackupPanel, SharedUploadDialog } from '@/components/shared-backup-panel';
 import { sharedServiceEnabled, type SharedBackup } from '@/lib/shared-backups';
+import { placeNavigationUrl } from '@/lib/navigation';
 
 type Mode = { kind: 'browse' } | { kind: 'place'; record: Place } | { kind: 'draw'; points: Coordinate[] } | { kind: 'route'; record: Route; editable: boolean } | { kind: 'walking'; start?: Coordinate; end?: Coordinate; picking: 'start' | 'end'; pending: boolean; result?: WalkResult; error?: CopyKey };
 type Confirmation = { kind: 'import'; backup: Backup } | { kind: 'delete'; record: MapRecord };
@@ -24,10 +25,13 @@ export default function HealthMap() {
   const [language, setLanguage] = useState<Language>('zh');
   const [data, setData] = useState<Backup>(EMPTY_DATA);
   const [sharedView, setSharedView] = useState(false);
-  const [sharedBackup, setSharedBackup] = useState<SharedBackup>();
+  const [sharedBackups, setSharedBackups] = useState<SharedBackup[]>([]);
   const [sharedRefresh, setSharedRefresh] = useState(0);
   const [uploadBackup, setUploadBackup] = useState<Backup>();
-  const displayData = sharedView ? sharedBackup?.backup || EMPTY_DATA : data;
+  // Scope IDs by backup so matching IDs from different uploads remain distinct
+  // in map click handlers, details, React keys, and merged JSON downloads.
+  const mergedSharedData = useMemo<Backup>(() => ({ ...EMPTY_DATA, records: sharedBackups.flatMap(value => value.backup.records.map(record => ({ ...record, id: `${value.summary.id}:${record.id}` }))) }), [sharedBackups]);
+  const displayData = sharedView ? mergedSharedData : data;
   const [hydrated, setHydrated] = useState(false);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: 'browse' });
@@ -116,9 +120,9 @@ export default function HealthMap() {
     controller.current?.render(visible.filter(r => !(mode.kind === 'place' || mode.kind === 'route') || r.id !== mode.record.id), language, selectedId);
   }, [displayData, filter, language, selectedId, mode.kind, status]);
   useEffect(() => {
-    if (status !== 'ready' || !sharedView || !sharedBackup) return;
-    controller.current?.focus(sharedBackup.backup.records.flatMap(r => r.kind === 'place' ? [r.position] : r.points));
-  }, [sharedBackup, sharedView, status]);
+    if (status !== 'ready' || !sharedView || !mergedSharedData.records.length) return;
+    controller.current?.focus(mergedSharedData.records.flatMap(r => r.kind === 'place' ? [r.position] : r.points));
+  }, [mergedSharedData, sharedView, status]);
   useEffect(() => {
     if (status !== 'ready') return;
     let draft: MapDraft | undefined;
@@ -195,7 +199,7 @@ export default function HealthMap() {
   function switchSource(shared: boolean) {
     if (active || confirmation || uploadBackup) return;
     searchSequence.current++; walkingSequence.current++;
-    setSharedView(shared); setSharedBackup(undefined); setSelectedId(undefined); setFilter('all');
+    setSharedView(shared); setSharedBackups([]); setSelectedId(undefined); setFilter('all');
     setMessage(undefined);
     setResults(undefined); setSearchError(undefined); setSearchPending(false); setPreview(undefined); setPanelOpen(true);
   }
@@ -279,6 +283,7 @@ export default function HealthMap() {
       {language === 'zh' && selected.nameEn && <p className="subtle">{selected.nameEn}</p>}
       <p className="description">{selected.description || t('noDescription')}</p>
       {selected.kind === 'place' ? <dl className="detail-fields">{([[t('address'), selected.address], [t('hours'), selected.hours], [t('contact'), selected.contact], [t('position'), positionText(selected.position)]]).filter(([,v]) => v).map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <><div className="route-stats"><span>{t('routeLength')}<b>{distance(selected.distance)}</b></span>{selected.duration !== undefined && <span>{t('estimatedTime')}<b>{Math.ceil(selected.duration/60)} {t('minutes')}</b></span>}</div><p className="subtle">{t('source')}: {t(selected.source === 'manual' ? 'manual' : 'walking')}</p><p className="subtle">{t('distanceNotice')}</p></>}
+      {selected.kind === 'place' && <div className="place-navigation"><Button asChild className="full-width"><a href={placeNavigationUrl(selected, language)} target="_blank" rel="noopener noreferrer"><Navigation />{t('navigateToPlace')}</a></Button><p className="subtle">{t('navigationHelp')}</p></div>}
       {!sharedView && <div className="editor-actions"><Button variant="outline" disabled={!mapEnabled} onClick={() => editRecord(selected)}><Pencil />{t('edit')}</Button><Button variant="outline" className="danger-button" disabled={storageBlocked} onClick={() => setConfirmation({ kind: 'delete', record: selected })}><Trash2 />{t('remove')}</Button></div>}
     </section>;
   }
@@ -294,10 +299,10 @@ export default function HealthMap() {
         <div className="sidebar-scroll">
           <div className="source-tabs" role="tablist" aria-label={t('source')} onKeyDown={e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key) || active || confirmation || uploadBackup) return; e.preventDefault(); switchSource(!sharedView); document.getElementById(sharedView ? 'mine-tab' : 'shared-tab')?.focus(); }}><button id="mine-tab" role="tab" aria-controls="source-content" aria-selected={!sharedView} tabIndex={sharedView ? -1 : 0} disabled={active || !!confirmation || !!uploadBackup} onClick={() => switchSource(false)}>{t('saved')}</button><button id="shared-tab" role="tab" aria-controls="source-content" aria-selected={sharedView} tabIndex={sharedView ? 0 : -1} disabled={active || !!confirmation || !!uploadBackup} onClick={() => switchSource(true)}>{t('shared')}</button></div>
           <div id="source-content" role="tabpanel" aria-labelledby={sharedView ? 'shared-tab' : 'mine-tab'}>
-          {sharedView && <SharedBackupPanel language={language} refresh={sharedRefresh} selectedId={sharedBackup?.summary.id} onLoaded={value => { setSharedBackup(value); setSelectedId(undefined); setFilter('all'); setPreview(undefined); setMessage(undefined); }} onDeleted={() => { setSharedBackup(undefined); setSelectedId(undefined); setFilter('all'); setPreview(undefined); notify('sharedDeleted', true); }} />}
-          {sharedView && sharedBackup && <div className="shared-banner"><b>{sharedBackup.summary.name}</b><span>{t('creator')}: {sharedBackup.summary.creator}</span><small>{t('sharedReadonly')}</small><Button variant="outline" size="sm" onClick={() => switchSource(false)}>{t('returnMine')}</Button></div>}
+          {sharedView && <SharedBackupPanel language={language} refresh={sharedRefresh} onLoaded={value => { setSharedBackups(previous => [...previous.filter(item => item.summary.id !== value.summary.id), value]); setSelectedId(undefined); setFilter('all'); setPreview(undefined); setMessage(undefined); }} onRemoved={(id, deleted) => { setSharedBackups(previous => previous.filter(item => item.summary.id !== id)); setSelectedId(undefined); setFilter('all'); setPreview(undefined); if (deleted) notify('sharedSelectionDeleted', true); }} />}
+          {sharedView && sharedBackups.length > 0 && <div className="shared-banner"><b>{t('selectedShared')}: {sharedBackups.length}</b><span>{sharedBackups.map(value => value.summary.name).join(' · ')}</span><small>{t('sharedReadonly')}</small><Button variant="outline" size="sm" onClick={() => switchSource(false)}>{t('returnMine')}</Button></div>}
           {storageBlocked && <p className="inline-error" role="alert">{t('restoreError')}</p>}
-          {mode.kind === 'place' || mode.kind === 'route' ? renderForm() : mode.kind === 'walking' ? renderWalking() : mode.kind === 'draw' ? <section className="editor drawing-panel"><span className="section-icon"><RouteIcon /></span><h2>{t('drawing')}</h2><p className="instruction">{t('drawingHelp')}</p><div className="route-stats"><span>{t('vertices')}<b>{mode.points.length}</b></span><span>{t('routeLength')}<b>{distance(pathDistance(mode.points))}</b></span></div><Button variant="outline" className="full-width" disabled={!mode.points.length} onClick={() => setMode({ ...mode, points: mode.points.slice(0,-1) })}><Undo2 />{t('undo')}</Button><Button className="full-width" disabled={!validPath(mode.points)} onClick={() => setMode({ kind: 'route', record: makeRoute(mode.points), editable: true })}><Check />{t('finish')}</Button><Button variant="ghost" className="full-width" onClick={cancel}>{t('cancel')}</Button></section> : selected ? renderDetails() : sharedView && !sharedBackup ? null : <>
+          {mode.kind === 'place' || mode.kind === 'route' ? renderForm() : mode.kind === 'walking' ? renderWalking() : mode.kind === 'draw' ? <section className="editor drawing-panel"><span className="section-icon"><RouteIcon /></span><h2>{t('drawing')}</h2><p className="instruction">{t('drawingHelp')}</p><div className="route-stats"><span>{t('vertices')}<b>{mode.points.length}</b></span><span>{t('routeLength')}<b>{distance(pathDistance(mode.points))}</b></span></div><Button variant="outline" className="full-width" disabled={!mode.points.length} onClick={() => setMode({ ...mode, points: mode.points.slice(0,-1) })}><Undo2 />{t('undo')}</Button><Button className="full-width" disabled={!validPath(mode.points)} onClick={() => setMode({ kind: 'route', record: makeRoute(mode.points), editable: true })}><Check />{t('finish')}</Button><Button variant="ghost" className="full-width" onClick={cancel}>{t('cancel')}</Button></section> : selected ? renderDetails() : sharedView && !sharedBackups.length ? null : <>
             {!sharedView && <section className="search-section"><div className="section-heading"><h1>{t('resources')}</h1><span className="small-badge">{t('campus')}</span></div><form className="search-box" onSubmit={e => { e.preventDefault(); void runSearch(); }}><Search size={18} /><Input aria-label={t('search')} placeholder={t('searchPlaceholder')} value={query} disabled={!mapEnabled} maxLength={100} onChange={e => setQuery(e.target.value)} /><Button type="submit" size="icon-sm" disabled={!mapEnabled || !query.trim() || searchPending} aria-label={t('search')}><Search size={16} /></Button></form></section>}
             {(results !== undefined || searchError || searchPending) && <section className="search-results"><div className="section-heading"><h2>{t('searchResults')}</h2><Button variant="ghost" size="icon-sm" aria-label={t('close')} onClick={() => { searchSequence.current++; setResults(undefined); setSearchError(undefined); setSearchPending(false); setPreview(undefined); }}><X /></Button></div>{searchPending && <p className="subtle" role="status">{t('searchBusy')}</p>}{searchError && <p className="subtle" role="status">{t(searchError)}</p>}{results?.map(poi => <div key={poi.id} className={`search-result ${preview?.id === poi.id ? 'selected' : ''}`}><button onClick={() => setPreview(poi)}><MapPin size={18} /><span><b>{poi.name}</b><small>{poi.address}</small></span></button>{preview?.id === poi.id && <Button size="sm" className="full-width" onClick={() => preparePlace(poi.position, poi)}>{t('confirmPlace')}</Button>}</div>)}</section>}
             <section className="category-section"><div className="category-grid"><button className={`category-chip ${filter === 'all' ? 'selected' : ''}`} onClick={() => { setFilter('all'); setPreview(undefined); }}><Layers size={16} />{t('all')}<span>{displayData.records.length}</span></button>{CATEGORY_IDS.map(id => <button className={`category-chip ${filter === id ? 'selected' : ''}`} style={{ '--category-color': CATEGORIES[id].color } as CSSProperties} key={id} onClick={() => { setFilter(id); setPreview(undefined); }}><i>{CATEGORIES[id].symbol}</i>{CATEGORIES[id][language]}<span>{displayData.records.filter(r => r.category === id).length}</span></button>)}<button className={`category-chip ${filter === 'relaxation' ? 'selected' : ''}`} onClick={() => { setFilter('relaxation'); setPreview(undefined); }}><RouteIcon size={16} />{t('relaxation')}<span>{displayData.records.filter(r => r.kind === 'route').length}</span></button></div></section>
@@ -305,7 +310,7 @@ export default function HealthMap() {
           </>}
           </div>
         </div>
-        <footer className="sidebar-footer"><div><Button variant="ghost" size="sm" disabled={!hydrated || (sharedView && !sharedBackup)} onClick={exportData}><ArrowDownToLine />{t(sharedView ? 'downloadShared' : 'export')}</Button>{!sharedView && <Button variant="ghost" size="sm" disabled={!hydrated || active || !!uploadBackup} onClick={() => fileInput.current?.click()}><ArrowUpFromLine />{t('import')}</Button>}</div>{!sharedView && <Button className="full-width" variant="outline" size="sm" disabled={!hydrated || active || storageBlocked || !data.records.length || !sharedServiceEnabled} onClick={() => setUploadBackup(data)}>{t('uploadShared')}</Button>}<p>{t(sharedView ? 'sharedReadonly' : 'localNotice')}</p><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => void importData(e.target.files?.[0])} /></footer>
+        <footer className="sidebar-footer"><div><Button variant="ghost" size="sm" disabled={!hydrated || (sharedView && !sharedBackups.length)} onClick={exportData}><ArrowDownToLine />{t(sharedView ? 'downloadShared' : 'export')}</Button>{!sharedView && <Button variant="ghost" size="sm" disabled={!hydrated || active || !!uploadBackup} onClick={() => fileInput.current?.click()}><ArrowUpFromLine />{t('import')}</Button>}</div>{!sharedView && <Button className="full-width" variant="outline" size="sm" disabled={!hydrated || active || storageBlocked || !data.records.length || !sharedServiceEnabled} onClick={() => setUploadBackup(data)}>{t('uploadShared')}</Button>}<p>{t(sharedView ? 'sharedReadonly' : 'localNotice')}</p><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => void importData(e.target.files?.[0])} /></footer>
       </aside>
       <section className="map-area" aria-label={language === 'zh' ? '校园地图' : 'Campus map'}>
         <div ref={mapElement} className="map-container" />

@@ -24,10 +24,14 @@ async function addPlace(name='测试地点'){
 }
 test('place creation, cancel restores position, drag changes saved position, deletion',async()=>{
   await mount();await addPlace();assert.equal(saved().length,1);
+  const navigation=screen.getByRole('link',{name:'导航到这里'});
+  assert.equal(new URL(navigation.href).searchParams.get('to'),'121.501600,31.284800,测试地点');
+  assert.equal(navigation.target,'_blank');assert.ok(navigation.rel.includes('noopener'));
   fireEvent.click(screen.getByRole('button',{name:'编辑',exact:true}));clickMap([121.502,31.285]);fireEvent.click(screen.getAllByRole('button',{name:'取消',exact:true}).at(-1));assert.deepEqual(saved()[0].position,[121.5016,31.2848]);
   fireEvent.click(screen.getByRole('button',{name:'编辑',exact:true}));
   act(()=>state.markers.findLast(m=>m.options.draggable).emit('dragend',{lnglat:{lng:121.503,lat:31.286}}));
   fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));assert.deepEqual(saved()[0].position,[121.503,31.286]);
+  assert.equal(new URL(screen.getByRole('link',{name:'导航到这里'}).href).searchParams.get('to'),'121.503000,31.286000,测试地点');
   fireEvent.click(screen.getByRole('button',{name:'删除',exact:true}));fireEvent.click(screen.getByRole('button',{name:'删除',exact:true}));assert.equal(saved().length,0);
 });
 test('draw, undo, finish, edit a vertex, save and rehydrate route',async()=>{
@@ -37,6 +41,7 @@ test('draw, undo, finish, edit a vertex, save and rehydrate route',async()=>{
   act(()=>{const editor=state.editors.at(-1);editor.line.setPath([[121.5016,31.2848],[121.5021,31.2851]]);editor.emit('adjust');});
   fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));assert.equal(saved()[0].points.length,2);assert.deepEqual(saved()[0].points[1],[121.5021,31.2851]);assert.ok(saved()[0].distance>0);
   cleanup();await mount();assert.ok(screen.getByRole('button',{name:/校园散步路线/}));
+  fireEvent.click(screen.getByRole('button',{name:/校园散步路线/}));assert.equal(screen.queryByRole('link',{name:'导航到这里'}),null);
 });
 test('walking result saved, cancel discards edited geometry and keeps planned time',async()=>{
   await mount();fireEvent.click(screen.getByRole('button',{name:'步行规划',exact:true}));clickMap([121.5016,31.2848]);clickMap([121.5025,31.2853]);
@@ -100,10 +105,14 @@ test('shared backup renders places and routes read-only, filters, and restores p
   await mount();await addPlace('我的私有地点');
   const before=localStorage.getItem(STORAGE_KEY);
   fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
-  fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/公开备份/}));
   await screen.findByText('只读查看 · 个人标注未被更改',{selector:'small'});
   assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
   fireEvent.click(screen.getByRole('button',{name:/共享运动地点/}));
+  assert.equal(new URL(screen.getByRole('link',{name:'导航到这里'}).href).searchParams.get('to'),'121.501600,31.284800,共享运动地点');
+  fireEvent.click(screen.getByRole('button',{name:'Switch to English'}));
+  assert.equal(new URL(screen.getByRole('link',{name:'Navigate here'}).href).searchParams.get('to'),'121.501600,31.284800,Shared sports place');
+  fireEvent.click(screen.getByRole('button',{name:'切换为中文'}));
   assert.equal(screen.queryByRole('button',{name:'编辑',exact:true}),null);
   assert.equal(screen.queryByRole('button',{name:'删除',exact:true}),null);
   assert.equal(localStorage.getItem(STORAGE_KEY),before);
@@ -117,16 +126,26 @@ test('shared backup renders places and routes read-only, filters, and restores p
   assert.ok(screen.getByRole('button',{name:/我的私有地点/}));
   assert.equal(localStorage.getItem(STORAGE_KEY),before);
 });
-test('late shared responses cannot replace newer selections or personal source',async()=>{
+test('concurrent selections merge matching IDs; cancelling pending requests and switching source ignore late responses',async()=>{
   const a=sharedItem('备份 A'), b=sharedItem('备份 B'); const resolvers={};
   globalThis.fetch=async url=>String(url).endsWith('/backups') ? Response.json({items:[a,b]}) : new Promise(resolve=>{resolvers[String(url).split('/').at(-1)]=resolve;});
   await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
-  fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 B/}));
   await act(async()=>{resolvers[b.id](Response.json({summary:b,backup:sharedFixture}));});
-  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B'));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,2));
   await act(async()=>{resolvers[a.id](Response.json({summary:a,backup:sharedFixture}));});
-  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
-  fireEvent.click(screen.getByRole('button',{name:/备份 A/}));fireEvent.click(screen.getByRole('tab',{name:'我的标注'}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,4));
+  assert.equal(screen.getAllByRole('button',{name:/共享运动地点/}).length,2);
+  assert.equal(screen.getAllByRole('button',{name:/共享步行路线/}).length,2);
+  assert.equal(document.querySelector('.shared-banner b').textContent,'已显示备份: 2');
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));
+  assert.equal(state.maps.at(-1).overlays.size,2);
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));
+  await act(async()=>{resolvers[a.id](Response.json({summary:a,backup:sharedFixture}));});
+  assert.equal(state.maps.at(-1).overlays.size,2);
+  assert.equal(screen.getByRole('checkbox',{name:/备份 A/}).checked,false);
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('tab',{name:'我的标注'}));
   await act(async()=>{resolvers[a.id](Response.json({summary:a,backup:sharedFixture}));});
   assert.equal(document.querySelector('.shared-banner'),null);
   assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false);
@@ -164,18 +183,18 @@ test('refresh hides deleted selection, clears details/filter/overlays and preser
     return Response.json({summary:item,backup:sharedFixture});
   };
   await mount();await addPlace('Personal');const before=localStorage.getItem(STORAGE_KEY);
-  fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('checkbox',{name:/公开备份/}));
   await waitFor(()=>assert.ok(document.querySelector('.shared-banner')));
   fireEvent.click(screen.getByRole('button',{name:/运动健身\s*1/}));
   fireEvent.click(screen.getByRole('button',{name:/共享运动地点/}));
   deleted=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
-  await screen.findByText('这份共享备份已被删除，地图已清空；个人标注保持不变。');
+  await screen.findByText('已删除的备份已从地图移除，其余勾选的备份继续显示；个人标注保持不变。');
   assert.equal(queries.at(-1).searchParams.get('selectedId'),item.id);
   assert.equal(document.querySelector('.shared-banner'),null);assert.equal(state.maps.at(-1).overlays.size,0);
   assert.equal(screen.getByRole('button',{name:'下载 JSON'}).disabled,true);
   assert.equal(localStorage.getItem(STORAGE_KEY),before);
   fireEvent.click(screen.getByRole('button',{name:'Switch to English'}));
-  assert.ok(screen.getByText('This shared backup was deleted. The map has been cleared; your annotations are unchanged.'));
+  assert.ok(screen.getByText('Deleted backups have been removed from the map. Other selected backups remain visible; your annotations are unchanged.'));
   fireEvent.click(screen.getByRole('tab',{name:'My annotations'}));assert.ok(screen.getByRole('button',{name:/Personal/}));
   assert.equal(localStorage.getItem(STORAGE_KEY),before);
 });
@@ -186,7 +205,7 @@ test('refresh failures and missing optional field preserve selection even outsid
     if(mode==='failed')return Response.json({error:{code:'UNAVAILABLE'}},{status:503});
     return Response.json(mode==='initial'?{items:[item]}:mode==='old'?{items:[]}:{items:[],selectedExists:mode!=='deleted'});
   };
-  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('checkbox',{name:/公开备份/}));
   await waitFor(()=>assert.ok(document.querySelector('.shared-banner')));
   for(const value of ['old','exists','failed']){
     mode=value;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
@@ -196,43 +215,86 @@ test('refresh failures and missing optional field preserve selection even outsid
   mode='deleted';fireEvent.click(screen.getByRole('button',{name:'重新加载'}));
   await waitFor(()=>assert.ok(!document.querySelector('.shared-banner')));
 });
-test('refresh invalidates old detail; delayed deletion response cannot clear a newer selection',async()=>{
-  const a=sharedItem('备份 A'), b=sharedItem('备份 B');let listResolve,detailResolve,delayList=false,delayDetail=false;
+test('refresh removes only deleted selected backups including IDs outside the first page',async()=>{
+  const a=sharedItem('备份 A'),b=sharedItem('备份 B');let deleted=false;const queries=[];
   globalThis.fetch=async url=>{
     const u=new URL(url);
-    if(u.pathname==='/backups')return delayList?new Promise(resolve=>{listResolve=resolve;}):Response.json({items:[a,b],selectedExists:true});
-    if(delayDetail)return new Promise(resolve=>{detailResolve=resolve;});
+    if(u.pathname==='/backups'){
+      queries.push(u.searchParams.get('selectedId'));
+      return Response.json({items:deleted?[]:[a,b],selectedExists:!(deleted&&u.searchParams.get('selectedId')===b.id)});
+    }
     return Response.json({summary:u.pathname.endsWith(a.id)?a:b,backup:sharedFixture});
   };
-  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));
-  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 A'));
-  delayDetail=true;fireEvent.click(screen.getByRole('button',{name:/备份 A/}));
-  delayList=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
-  await act(async()=>{listResolve(Response.json({items:[b],selectedExists:false}));});
-  await waitFor(()=>assert.ok(!document.querySelector('.shared-banner')));
-  await act(async()=>{detailResolve(Response.json({summary:a,backup:sharedFixture}));});
-  assert.equal(document.querySelector('.shared-banner'),null);
-  delayDetail=false;fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
-  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 B'));
-  fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
-  fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
-  await act(async()=>{listResolve(Response.json({items:[b],selectedExists:false}));});
-  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 B/}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,4));
+  deleted=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,2));
+  assert.ok(queries.includes(a.id));assert.ok(queries.includes(b.id));
+  assert.equal(document.querySelector('.shared-banner span').textContent,'备份 A');
+  assert.equal(screen.getByRole('button',{name:'下载 JSON'}).disabled,false);
 });
-test('deletion result captured for A cannot clear B selected during refresh or the personal source',async()=>{
-  const a=sharedItem('备份 A'),b=sharedItem('备份 B');let resolveList,delay=false;
+test('delayed deletion cannot remove a reselected backup or change the personal source',async()=>{
+  const a=sharedItem('备份 A');let resolveList,delay=false;
   globalThis.fetch=async url=>new URL(url).pathname==='/backups'
-    ?delay?new Promise(resolve=>{resolveList=resolve;}):Response.json({items:[a,b]})
-    :Response.json({summary:String(url).endsWith(a.id)?a:b,backup:sharedFixture});
-  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));
-  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 A'));
-  delay=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
-  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 B'));
-  await act(async()=>{resolveList(Response.json({items:[b],selectedExists:false}));});
-  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
+    ?delay?new Promise(resolve=>{resolveList=resolve;}):Response.json({items:[a]})
+    :Response.json({summary:a,backup:sharedFixture});
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('checkbox',{name:/备份 A/}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,2));
+  delay=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,2));
+  await act(async()=>{resolveList(Response.json({items:[a],selectedExists:false}));});
+  assert.equal(screen.getByRole('checkbox',{name:/备份 A/}).checked,true);
+  assert.equal(state.maps.at(-1).overlays.size,2);
   fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));fireEvent.click(screen.getByRole('tab',{name:'我的标注'}));
   await act(async()=>{resolveList(Response.json({items:[],selectedExists:false}));});
   assert.equal(document.querySelector('.shared-banner'),null);
   assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false);
-  assert.equal(screen.queryByText('这份共享备份已被删除，地图已清空；个人标注保持不变。'),null);
+});
+test('failed selection unchecks only that backup and retry merges it with the successful selection',async()=>{
+  const a=sharedItem('备份 A'),b=sharedItem('备份 B');let fail=true;
+  globalThis.fetch=async url=>new URL(url).pathname==='/backups'?Response.json({items:[a,b]})
+    :String(url).endsWith(b.id)&&fail?Response.json({error:{code:'UNAVAILABLE'}},{status:503})
+    :Response.json({summary:String(url).endsWith(a.id)?a:b,backup:sharedFixture});
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 B/}));
+  await screen.findByRole('alert');
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,2));
+  assert.equal(screen.getByRole('checkbox',{name:/备份 A/}).checked,true);
+  assert.equal(screen.getByRole('checkbox',{name:/备份 B/}).checked,false);
+  fail=false;fireEvent.click(screen.getByRole('button',{name:'重新加载'}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,4));
+  fireEvent.click(screen.getByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 B/}));
+  assert.equal(state.maps.at(-1).overlays.size,0);
+  assert.equal(screen.getByRole('button',{name:'下载 JSON'}).disabled,true);
+});
+test('merged backups preserve distinct details, filter together, and download valid JSON despite matching original IDs',async()=>{
+  const a=sharedItem('备份 A'),b=sharedItem('备份 B');
+  const other=structuredClone(sharedFixture);
+  other.records[0].nameZh='备份 B 地点';other.records[0].position=[121.504,31.286];
+  other.records[1].nameZh='备份 B 路线';
+  globalThis.fetch=async url=>new URL(url).pathname==='/backups'?Response.json({items:[a,b]})
+    :Response.json({summary:String(url).endsWith(a.id)?a:b,backup:String(url).endsWith(a.id)?sharedFixture:other});
+  await mount();await addPlace('个人标注');const before=localStorage.getItem(STORAGE_KEY);
+  fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/备份 A/}));fireEvent.click(screen.getByRole('checkbox',{name:/备份 B/}));
+  await waitFor(()=>assert.equal(state.maps.at(-1).overlays.size,4));
+  fireEvent.click(screen.getByRole('button',{name:/备份 B 地点/}));
+  assert.equal(new URL(screen.getByRole('link',{name:'导航到这里'}).href).searchParams.get('to'),'121.504000,31.286000,备份 B 地点');
+  assert.ok(screen.getByText('121.504000, 31.286000'));assert.equal(screen.queryByRole('button',{name:'编辑',exact:true}),null);
+  fireEvent.click(screen.getByRole('button',{name:'标注详情',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:/运动健身\s*2/}));
+  assert.equal(state.maps.at(-1).overlays.size,2);assert.equal(screen.queryByRole('button',{name:/备份 B 路线/}),null);
+  let blob;const originalCreate=URL.createObjectURL,originalRevoke=URL.revokeObjectURL;
+  const originalClick=window.HTMLAnchorElement.prototype.click;
+  try{
+    URL.createObjectURL=value=>{blob=value;return 'blob:test-merged';};URL.revokeObjectURL=()=>{};
+    window.HTMLAnchorElement.prototype.click=()=>{};
+    fireEvent.click(screen.getByRole('button',{name:'下载 JSON'}));
+    const merged=(await import('../lib/model.ts')).parseBackup(await blob.text());
+    assert.equal(merged.records.length,4);assert.equal(new Set(merged.records.map(record=>record.id)).size,4);
+    assert.ok(merged.records.some(record=>record.nameZh==='备份 B 地点'));
+    assert.equal(localStorage.getItem(STORAGE_KEY),before);
+  }finally{URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke;window.HTMLAnchorElement.prototype.click=originalClick;}
 });

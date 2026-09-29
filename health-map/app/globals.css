@@ -118,6 +118,8 @@ select:focus-visible { outline:3px solid #bad7f2; border-color:var(--primary); }
 .detail-fields { display:grid; gap:17px; }
 .detail-fields dt { font-size:12px; color:#7c8fa2; margin-bottom:5px; }
 .detail-fields dd { font-size:14px; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.place-navigation { margin:20px 0; }
+.place-navigation .subtle { margin:8px 0 0; font-size:12px; line-height:1.6; }
 .danger-button { color:#bd3c50; }
 .danger-solid { background:#bd3c50!important; }
 .inline-error { background:#fff0f1; color:#b0344b; padding:12px; font-size:13px; line-height:1.8; border-radius:7px; margin:12px; }
@@ -172,7 +174,10 @@ select:focus-visible { outline:3px solid #bad7f2; border-color:var(--primary); }
 .shared-list { padding:18px 22px; border-bottom:1px solid var(--border); }
 .shared-list h2 { font-size:17px; }
 .shared-cards { display:grid; gap:10px; margin:12px 0; }
-.shared-card { display:grid; gap:5px; text-align:left; padding:13px 14px; background:white; border:1px solid #dce6f1; border-radius:10px; cursor:pointer; color:#244667; overflow-wrap:anywhere; }
+.shared-card { display:grid; grid-template-columns:minmax(0,1fr) 24px; align-items:center; gap:14px; text-align:left; padding:13px 14px; background:white; border:1px solid #dce6f1; border-radius:10px; cursor:pointer; color:#244667; overflow-wrap:anywhere; }
+.shared-card-content { display:grid; gap:5px; min-width:0; }
+.shared-card-checkbox { width:20px; height:20px; margin:0; accent-color:#0753aa; cursor:pointer; }
+.shared-card:focus-within { outline:2px solid #448bec; outline-offset:2px; }
 .shared-card:hover,.shared-card.selected { border-color:#448bec; background:#f0f6ff; }
 .shared-card b { font-size:16px; }
 .shared-card span { font-size:14px; }
