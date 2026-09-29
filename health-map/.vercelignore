@@ -1,0 +1,23 @@
+# Local credentials and runtime state
+.env*
+!.env.example
+.sites-runtime/
+.wrangler/
+.agents/
+.codex/
+
+# Generated output and local verification artifacts
+node_modules/
+.next/
+.next-static/
+.vinext/
+dist/
+out/
+outputs/
+work/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Unused scaffolding
+examples/

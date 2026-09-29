@@ -1,0 +1,21 @@
+# Credentials and generated files at any level
+**/.env*
+!**/.env.example
+**/node_modules/
+**/.vercel/
+**/.next/
+**/.next-static/
+**/.vinext/
+**/.wrangler/
+**/.sites-runtime/
+**/dist/
+**/out/
+**/outputs/
+**/coverage/
+**/*.tsbuildinfo
+**/*.pem
+**/*.key
+
+# Preserve the detailed local guide; the repository README is intentionally empty.
+/health-map/README.md
+/health-map/0
