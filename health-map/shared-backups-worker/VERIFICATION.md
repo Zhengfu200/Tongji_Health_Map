@@ -14,8 +14,13 @@
 - 已创建公开仓库 `Zhengfu200/Tongji_Health_Map_Backups`，初始化 `main` 和空索引。模拟测试未写入真实仓库。
 - 已启用真实本地 Worker（localhost:8787），读取 GitHub 的共享列表返回 HTTP 200，来源 localhost:5173 的跨域访问正常。前端 `.env.local` 已配置该地址并重启，在独立浏览器中验证共享列表空状态正常，有已保存标注时上传按钮启用。该轮验证没有上传测试标注到公共仓库。
 
-## 尚需真实上线验证
+## 真实上线验证
 
-Cloudflare 账号认证成功，但当前令牌在发布接口收到“无权访问资源”。发布需要补齐 Workers 创建/部署权限。GitHub fine-grained token 已保存于被忽略的本地 `.dev.vars`；使用该令牌读取备份仓库 `main` 分支返回 HTTP 200，写入权限及真实上传尚待上线验证。
+Workers Admin 权限已由网站所有者补齐，Worker 已部署至 `https://tongji-health-map-backups.lgy0822.workers.dev`，GitHub 令牌已设置为 Workers Secret。Pages Production 和本地前端均已连接这个接口。现有 Pages 来源已加入白名单；高德配置在重新构建后正常。
 
-完成凭据配置后按 README 发布 Worker、设置 Secret，再把真实 HTTPS API 地址加入本地、Vercel 与 EdgeOne 构建环境；EdgeOne 实际域名还需加入来源白名单。随后验证真实仓库上传、跨浏览器读取及 Cloudflare CPU/接口额度。当前构建验证不代表线上共享服务已启用。
+- 生产网站实际界面上传返回 HTTP 201；两个地点和一条路线通过原子提交进入真实 GitHub 仓库。
+- 第二个独立浏览器读取列表并加载该备份，地图和分类筛选正常，编辑及新建被禁止；返回个人地图后个人标注和 localStorage 原文保持不变。
+- 验证备份已通过一次非强制 Git 提交同步移除 JSON 文件和索引项，原有用户备份保留。验证使用已公开的备份数据；Git 历史仍保留验证提交。
+- GraphQL 查询的上线验证请求均为 success，错误数为 0；已读取 CPU 分位和请求量。小型 JSON 样本约 1.3 KB，样本中 CPU P99 最高约 12 ms。免费套餐名义 CPU 限额为 10 ms，平台允许偶发超限的弹性；此轮没有触发 CPU 错误，也未增加付费订阅。不能据此保证接近 1 MB 的文件都能在免费 CPU 额度内成功，较大文件仍需性能验证及必要优化。参见 [Workers 限制](https://developers.cloudflare.com/workers/platform/limits/)。
+
+Vercel 和 EdgeOne 的线上接口变量与重新部署未包含在本次 Pages 配置中；EdgeOne 实际域名还需加入来源白名单。

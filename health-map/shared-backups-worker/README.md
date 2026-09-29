@@ -2,6 +2,8 @@
 
 前端通过 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL` 调用独立 Worker。本接口不使用 D1、R2、KV 或付费套餐。仓库为 [Zhengfu200/Tongji_Health_Map_Backups](https://github.com/Zhengfu200/Tongji_Health_Map_Backups)，初始化 `main` 分支和 `index.json`，内容为 `{"version":1,"items":[]}`。
 
+当前生产前端：[tongji-health-map.pages.dev](https://tongji-health-map.pages.dev/)。共享接口为 `https://tongji-health-map-backups.lgy0822.workers.dev`，已配置 GitHub Secret，Pages Production 和本地前端已连接此地址。
+
 ## 本地真实仓库测试
 
 从 `health-map` 目录执行：
