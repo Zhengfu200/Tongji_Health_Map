@@ -156,3 +156,83 @@ test('upload failure preserves form and same retry ID; success publishes saved a
   fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true}));
   assert.equal(screen.getByRole('tab',{name:'共享备份'}).disabled,true);
 });
+test('refresh hides deleted selection, clears details/filter/overlays and preserves exact personal storage',async()=>{
+  const item=sharedItem();let deleted=false;const queries=[];
+  globalThis.fetch=async url=>{
+    const u=new URL(url);
+    if(u.pathname==='/backups'){queries.push(u);return Response.json({items:deleted?[]:[item],...(u.searchParams.has('selectedId')?{selectedExists:!deleted}:{})});}
+    return Response.json({summary:item,backup:sharedFixture});
+  };
+  await mount();await addPlace('Personal');const before=localStorage.getItem(STORAGE_KEY);
+  fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  await waitFor(()=>assert.ok(document.querySelector('.shared-banner')));
+  fireEvent.click(screen.getByRole('button',{name:/运动健身\s*1/}));
+  fireEvent.click(screen.getByRole('button',{name:/共享运动地点/}));
+  deleted=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+  await screen.findByText('这份共享备份已被删除，地图已清空；个人标注保持不变。');
+  assert.equal(queries.at(-1).searchParams.get('selectedId'),item.id);
+  assert.equal(document.querySelector('.shared-banner'),null);assert.equal(state.maps.at(-1).overlays.size,0);
+  assert.equal(screen.getByRole('button',{name:'下载 JSON'}).disabled,true);
+  assert.equal(localStorage.getItem(STORAGE_KEY),before);
+  fireEvent.click(screen.getByRole('button',{name:'Switch to English'}));
+  assert.ok(screen.getByText('This shared backup was deleted. The map has been cleared; your annotations are unchanged.'));
+  fireEvent.click(screen.getByRole('tab',{name:'My annotations'}));assert.ok(screen.getByRole('button',{name:/Personal/}));
+  assert.equal(localStorage.getItem(STORAGE_KEY),before);
+});
+test('refresh failures and missing optional field preserve selection even outside first page; retry can clear it',async()=>{
+  const item=sharedItem();let mode='initial';
+  globalThis.fetch=async url=>{
+    if(new URL(url).pathname!=='/backups')return Response.json({summary:item,backup:sharedFixture});
+    if(mode==='failed')return Response.json({error:{code:'UNAVAILABLE'}},{status:503});
+    return Response.json(mode==='initial'?{items:[item]}:mode==='old'?{items:[]}:{items:[],selectedExists:mode!=='deleted'});
+  };
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  await waitFor(()=>assert.ok(document.querySelector('.shared-banner')));
+  for(const value of ['old','exists','failed']){
+    mode=value;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+    await waitFor(()=>assert.equal(screen.getByRole('button',{name:'刷新列表'}).disabled,false));
+    assert.ok(document.querySelector('.shared-banner'));assert.equal(screen.getByRole('button',{name:'下载 JSON'}).disabled,false);
+  }
+  mode='deleted';fireEvent.click(screen.getByRole('button',{name:'重新加载'}));
+  await waitFor(()=>assert.ok(!document.querySelector('.shared-banner')));
+});
+test('refresh invalidates old detail; delayed deletion response cannot clear a newer selection',async()=>{
+  const a=sharedItem('备份 A'), b=sharedItem('备份 B');let listResolve,detailResolve,delayList=false,delayDetail=false;
+  globalThis.fetch=async url=>{
+    const u=new URL(url);
+    if(u.pathname==='/backups')return delayList?new Promise(resolve=>{listResolve=resolve;}):Response.json({items:[a,b],selectedExists:true});
+    if(delayDetail)return new Promise(resolve=>{detailResolve=resolve;});
+    return Response.json({summary:u.pathname.endsWith(a.id)?a:b,backup:sharedFixture});
+  };
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));
+  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 A'));
+  delayDetail=true;fireEvent.click(screen.getByRole('button',{name:/备份 A/}));
+  delayList=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+  await act(async()=>{listResolve(Response.json({items:[b],selectedExists:false}));});
+  await waitFor(()=>assert.ok(!document.querySelector('.shared-banner')));
+  await act(async()=>{detailResolve(Response.json({summary:a,backup:sharedFixture}));});
+  assert.equal(document.querySelector('.shared-banner'),null);
+  delayDetail=false;fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
+  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 B'));
+  fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));
+  fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
+  await act(async()=>{listResolve(Response.json({items:[b],selectedExists:false}));});
+  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
+});
+test('deletion result captured for A cannot clear B selected during refresh or the personal source',async()=>{
+  const a=sharedItem('备份 A'),b=sharedItem('备份 B');let resolveList,delay=false;
+  globalThis.fetch=async url=>new URL(url).pathname==='/backups'
+    ?delay?new Promise(resolve=>{resolveList=resolve;}):Response.json({items:[a,b]})
+    :Response.json({summary:String(url).endsWith(a.id)?a:b,backup:sharedFixture});
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));
+  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 A'));
+  delay=true;fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
+  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b')?.textContent,'备份 B'));
+  await act(async()=>{resolveList(Response.json({items:[b],selectedExists:false}));});
+  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
+  fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));fireEvent.click(screen.getByRole('tab',{name:'我的标注'}));
+  await act(async()=>{resolveList(Response.json({items:[],selectedExists:false}));});
+  assert.equal(document.querySelector('.shared-banner'),null);
+  assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false);
+  assert.equal(screen.queryByText('这份共享备份已被删除，地图已清空；个人标注保持不变。'),null);
+});

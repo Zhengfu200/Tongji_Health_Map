@@ -4,6 +4,7 @@ import { validateBackup } from '../lib/model';
 type Fetcher = typeof fetch;
 type Index = { version: 1; items: SharedSummary[] };
 const INDEX_LIMIT = 4 * 1024 * 1024;
+const TREE_LIMIT = 8 * 1024 * 1024;
 async function boundedText(response: Response | Request, limit: number) {
   if (Number(response.headers.get('content-length')) > limit) throw new SharedError('TOO_LARGE', 413);
   if (!response.body) throw new SharedError('INVALID_UPLOAD');
@@ -55,15 +56,32 @@ export class GitHubStore {
     if (new Set(items.map(i => i.id)).size !== items.length) throw new SharedError('INVALID_INDEX', 503);
     return { version: 1, items };
   }
-  async list(cursor?: string) {
-    const head = await this.head();
-    const index = await this.index(head.sha);
+  private async backupFiles(ref: string) {
+    const response = await this.call(`/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+    let result;
+    try { result = JSON.parse(await boundedText(response, TREE_LIMIT)); }
+    catch { throw new SharedError('INVALID_TREE', 503); }
+    if (result?.truncated !== false || !Array.isArray(result.tree)) throw new SharedError('INVALID_TREE', 503);
+    const files = new Set<string>();
+    for (const entry of result.tree) {
+      if (!entry || typeof entry.path !== 'string' || !['blob', 'tree', 'commit'].includes(entry.type)
+        || !['100644', '100755', '040000', '160000', '120000'].includes(entry.mode)) throw new SharedError('INVALID_TREE', 503);
+      if (entry.type === 'blob' && ['100644', '100755'].includes(entry.mode)) files.add(entry.path);
+    }
+    return files;
+  }
+  async list(cursor?: string, selectedId?: string) {
+    const ref = await this.json<{ object: { sha: string } }>(`/git/ref/heads/${encodeURIComponent(this.env.GITHUB_BRANCH)}`);
+    const [index, files] = await Promise.all([this.index(ref.object.sha), this.backupFiles(ref.object.sha)]);
     const items = index.items.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     // Cursor is the last item, so new uploads cannot shift a subsequent page.
     const position = cursor ? items.findIndex(i => i.id === cursor) : -1;
     if (cursor && position < 0) throw new SharedError('INVALID_CURSOR');
-    const page = items.slice(position + 1, position + 1 + SHARED_PAGE_SIZE);
-    return { items: page, ...(position + 1 + page.length < items.length ? { nextCursor: page.at(-1)?.id } : {}) };
+    const exists = (item: SharedSummary) => files.has(`backups/${item.id}.json`);
+    const remaining = items.slice(position + 1).filter(exists);
+    const page = remaining.slice(0, SHARED_PAGE_SIZE);
+    return { items: page, ...(remaining.length > page.length ? { nextCursor: page.at(-1)?.id } : {}),
+      ...(selectedId ? { selectedExists: items.some(item => item.id === selectedId && exists(item)) } : {}) };
   }
   async get(id: string) {
     const head = await this.head();
@@ -121,7 +139,9 @@ export async function handleRequest(request: Request, env: SharedBackupsEnv, sto
     if (url.pathname === '/backups' && request.method === 'GET') {
       const cursor = url.searchParams.get('cursor') || undefined;
       if (cursor && !UUID_PATTERN.test(cursor)) throw new SharedError('INVALID_CURSOR');
-      return Response.json(await store.list(cursor), { headers });
+      const selectedId = url.searchParams.get('selectedId');
+      if (selectedId !== null && !UUID_PATTERN.test(selectedId)) throw new SharedError('INVALID_UPLOAD');
+      return Response.json(await store.list(cursor?.toLowerCase(), selectedId?.toLowerCase()), { headers });
     }
     if (url.pathname === '/backups' && request.method === 'POST') {
       if (!origin) throw new SharedError('ORIGIN_REQUIRED', 403);

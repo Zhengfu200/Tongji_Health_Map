@@ -8,7 +8,7 @@ export interface SharedSummary {
   places: number; routes: number; byteSize: number;
 }
 export interface SharedBackup { summary: SharedSummary; backup: Backup }
-export interface SharedPage { items: SharedSummary[]; nextCursor?: string }
+export interface SharedPage { items: SharedSummary[]; nextCursor?: string; selectedExists?: boolean }
 export interface SharedUpload { id: string; name: string; creator: string; backup: Backup }
 export class SharedError extends Error {
   constructor(public code: string, public status = 400, public retryAfter?: string) { super(code); }
@@ -46,10 +46,14 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     throw new SharedError('UNAVAILABLE', 503);
   }
 }
-export async function listSharedBackups(cursor?: string): Promise<SharedPage> {
-  const body = await request(`/backups${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`) as SharedPage;
+export async function listSharedBackups(cursor?: string, selectedId?: string): Promise<SharedPage> {
+  const query = new URLSearchParams();
+  if (cursor) query.set('cursor', cursor);
+  if (selectedId) query.set('selectedId', selectedId);
+  const body = await request(`/backups${query.size ? `?${query}` : ''}`) as SharedPage;
   if (!Array.isArray(body?.items) || body.items.length > SHARED_PAGE_SIZE || (body.nextCursor !== undefined && typeof body.nextCursor !== 'string')) throw new SharedError('INVALID_RESPONSE', 502);
-  return { items: body.items.map(validateSummary), nextCursor: body.nextCursor };
+  if (body.selectedExists !== undefined && typeof body.selectedExists !== 'boolean') throw new SharedError('INVALID_RESPONSE', 502);
+  return { items: body.items.map(validateSummary), nextCursor: body.nextCursor, selectedExists: body.selectedExists };
 }
 export async function getSharedBackup(id: string): Promise<SharedBackup> {
   if (!UUID_PATTERN.test(id)) throw new SharedError('INVALID_UPLOAD');

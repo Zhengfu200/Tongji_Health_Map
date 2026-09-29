@@ -12,7 +12,7 @@ function errorKey(error: unknown, fallback: CopyKey): CopyKey {
   const keys: Record<string, CopyKey> = { TOO_LARGE: 'sharedTooLarge', RATE_LIMITED: 'sharedRateLimit', GITHUB_AUTH: 'sharedAuthError', NOT_CONFIGURED: 'sharedDisabled', NOT_FOUND: 'sharedNotFound', INVALID_UPLOAD: 'sharedInvalid', INVALID_BACKUP: 'sharedInvalid', EMPTY_BACKUP: 'sharedInvalid' };
   return keys[error.code] || fallback;
 }
-export function SharedBackupPanel({ language, refresh, selectedId, onLoaded }: { language: Language; refresh: number; selectedId?: string; onLoaded: (value: SharedBackup) => void }) {
+export function SharedBackupPanel({ language, refresh, selectedId, onLoaded, onDeleted }: { language: Language; refresh: number; selectedId?: string; onLoaded: (value: SharedBackup) => void; onDeleted: () => void }) {
   const t = (key: CopyKey) => copy[language][key];
   const [items, setItems] = useState<SharedSummary[]>([]);
   const [cursor, setCursor] = useState<string>();
@@ -23,15 +23,21 @@ export function SharedBackupPanel({ language, refresh, selectedId, onLoaded }: {
   const alive = useRef(true), listBusy = useRef(false);
   const failedCursor = useRef<string | undefined>(undefined);
   const loadCallback = useRef(onLoaded); loadCallback.current = onLoaded;
+  const deletedCallback = useRef(onDeleted); deletedCallback.current = onDeleted;
+  const selectedRef = useRef(selectedId); selectedRef.current = selectedId;
   useEffect(() => { alive.current = true; return () => { alive.current = false; listSequence.current++; detailSequence.current++; }; }, []);
   async function load(next?: string) {
     if (!sharedServiceEnabled || (next && listBusy.current)) return;
     const sequence = ++listSequence.current; listBusy.current = true; failedCursor.current = next; setPending(true); setError(undefined);
+    const selection = selectedRef.current;
+    if (!next) { detailSequence.current++; setLoadingId(undefined); setDetailError(undefined); }
+    const detailVersion = detailSequence.current;
     try {
-      const page = await listSharedBackups(next);
+      const page = await listSharedBackups(next, selection);
       if (!alive.current || sequence !== listSequence.current) return;
       setItems(previous => next ? [...previous, ...page.items.filter(i => !previous.some(p => p.id === i.id))] : page.items);
       setCursor(page.nextCursor);
+      if (selection && page.selectedExists === false && selectedRef.current === selection && detailVersion === detailSequence.current) deletedCallback.current();
     } catch (error) { if (alive.current && sequence === listSequence.current) setError(errorKey(error, 'sharedLoadError')); }
     finally { if (alive.current && sequence === listSequence.current) { listBusy.current = false; setPending(false); } }
   }
