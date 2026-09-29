@@ -13,7 +13,14 @@
     "start": "node node_modules/vinext/dist/cli.js start --port 5173",
     "test": "node --import tsx --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "shared:dev": "node node_modules/wrangler/bin/wrangler.js dev --config shared-backups-worker/wrangler.jsonc --port 8787 --compatibility-date 2026-05-22",
+    "shared:login": "node node_modules/wrangler/bin/wrangler.js login",
+    "shared:types": "node node_modules/wrangler/bin/wrangler.js types shared-backups-worker/worker-configuration.d.ts --config shared-backups-worker/wrangler.jsonc --env-interface SharedBackupsEnv --include-runtime false",
+    "shared:deploy": "node scripts/run-shared-wrangler.mjs deploy --config shared-backups-worker/wrangler.jsonc",
+    "shared:secret": "node scripts/configure-shared-secret.mjs",
+    "shared:dry-run": "node scripts/run-shared-wrangler.mjs deploy --config shared-backups-worker/wrangler.jsonc --dry-run",
+    "test:shared:preview": "node node_modules/wrangler/bin/wrangler.js dev --config tests/shared-preview.wrangler.jsonc --port 8788"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

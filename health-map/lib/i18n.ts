@@ -1,6 +1,8 @@
 import type { Language } from './model';
 export const copy = {
   zh: {
+    shared: '共享备份', sharedAnnotations: '备份中的标注', uploadShared: '上传共享备份', backupName: '备份名称', creator: '创建者', publicNotice: '名称、创建者和全部标注将公开，任何人都可以查看和下载。创建者名称为自填信息。',
+    sharedDisabled: '共享服务未启用。配置公共备份接口地址后即可上传和查看。', sharedEmpty: '还没有共享备份', sharedLoading: '正在加载备份…', sharedLoadError: '备份读取失败，请重试。', refreshShared: '刷新列表', moreShared: '加载更多', sharedReadonly: '只读查看 · 个人标注未被更改', returnMine: '返回我的标注', sharedUploaded: '共享备份已上传', uploadingShared: '正在上传…', uploadFailed: '上传失败，请重试；填写的信息已保留。', sharedTooLarge: '共享备份不能超过 1 MB。', sharedRateLimit: '请求过于频繁，请稍后重试。', sharedAuthError: '共享服务的 GitHub 凭据不可用，请联系网站维护者。', sharedInvalid: '备份或填写的信息无效，请检查后重试。', sharedNotFound: '这份备份已不存在，请刷新列表。', downloadShared: '下载 JSON',
     campus: '四平路校区', local: '个人本地地图', resources: '健康资源', all: '全部', places: '地点', routes: '路线',
     searchPlaceholder: '搜索校园地点，如：同济大学食堂', search: '搜索', searchResults: '高德搜索结果', saved: '我的标注',
     addPlace: '标注地点', drawRoute: '绘制路线', planRoute: '步行规划', export: '导出备份', import: '导入备份',
@@ -29,6 +31,8 @@ export const copy = {
     busyNotice: '先完成或取消当前操作，再开始新的标注。', languageError: '语言已切换，但偏好未能保存。', total: '条标注', backup: '本地备份', searchBusy: '搜索中…', source: '来源', editWalkingNote: '编辑节点后将作为手绘路线保存，预计时间会移除。',
   },
   en: {
+    shared: 'Shared backups', sharedAnnotations: 'Backup annotations', uploadShared: 'Upload shared backup', backupName: 'Backup name', creator: 'Creator', publicNotice: 'The name, creator and all annotations will be public for anyone to view and download. Creator names are self-reported.',
+    sharedDisabled: 'Sharing is not enabled. Configure the shared backup API URL to upload and browse.', sharedEmpty: 'No shared backups yet', sharedLoading: 'Loading backup…', sharedLoadError: 'Could not load backups. Please retry.', refreshShared: 'Refresh list', moreShared: 'Load more', sharedReadonly: 'Read-only · Your annotations are unchanged', returnMine: 'Back to my annotations', sharedUploaded: 'Shared backup uploaded', uploadingShared: 'Uploading…', uploadFailed: 'Upload failed. Retry; your form has been kept.', sharedTooLarge: 'Shared backups must not exceed 1 MB.', sharedRateLimit: 'Too many requests. Please try again later.', sharedAuthError: 'The sharing service’s GitHub credentials are unavailable. Contact the site maintainer.', sharedInvalid: 'Invalid backup or form. Please check and retry.', sharedNotFound: 'This backup no longer exists. Refresh the list.', downloadShared: 'Download JSON',
     campus: 'Siping Campus', local: 'Personal local map', resources: 'Health resources', all: 'All', places: 'Places', routes: 'Routes',
     searchPlaceholder: 'Search campus places, e.g. 同济大学食堂', search: 'Search', searchResults: 'AMap search results', saved: 'My annotations',
     addPlace: 'Add place', drawRoute: 'Draw route', planRoute: 'Plan a walk', export: 'Export backup', import: 'Import backup',

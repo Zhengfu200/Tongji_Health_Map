@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "tongji-health-map-backups",
+  "account_id": "e6892c6e2feb6a482e8c8c8f4ba3b5d1",
+  "main": "index.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "GITHUB_OWNER": "Zhengfu200",
+    "GITHUB_REPO": "Tongji_Health_Map_Backups",
+    "GITHUB_BRANCH": "main",
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,https://tongji-health-map-self.vercel.app,https://tongji-health-map.pages.dev"
+  },
+  "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }]
+}

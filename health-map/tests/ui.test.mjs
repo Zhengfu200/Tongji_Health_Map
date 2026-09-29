@@ -8,12 +8,14 @@ for(const name of ['window','document','HTMLElement','HTMLInputElement','Element
 globalThis.requestAnimationFrame=dom.window.requestAnimationFrame.bind(dom.window);globalThis.cancelAnimationFrame=dom.window.cancelAnimationFrame.bind(dom.window);globalThis.PointerEvent=dom.window.MouseEvent;
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 process.env.NEXT_PUBLIC_AMAP_KEY='test-only';process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE='test-only';
+process.env.NEXT_PUBLIC_SHARED_BACKUPS_API_URL='http://localhost:8787';
+const originalFetch = globalThis.fetch;
 const {render,screen,fireEvent,waitFor,cleanup,act}=await import('@testing-library/react');
 const {default:HealthMap}=await import('../components/health-map.tsx');
 const {STORAGE_KEY,EMPTY_DATA}=await import('../lib/model.ts');
 let sdk,state;
 beforeEach(()=>{window.localStorage.clear();const mock=createMockSdk();sdk=mock.sdk;state=mock.state;window.AMapLoader={load:async()=>sdk};globalThis.localStorage=window.localStorage;});
-afterEach(()=>{cleanup();});
+afterEach(()=>{cleanup();globalThis.fetch=originalFetch;});
 async function mount(){render(React.createElement(HealthMap));await waitFor(()=>assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false));}
 function clickMap(p){act(()=>state.maps.at(-1).click(p));}
 const saved=()=>JSON.parse(window.localStorage.getItem(STORAGE_KEY)).records;
@@ -89,3 +91,68 @@ test('selected walking endpoints are not connected before an actual plan exists'
 });
 
 
+
+const sharedFixture = (await import('./shared-github-mock.mjs')).fixtureBackup;
+function sharedItem(name='公开备份', creator='同学 A') { return { id: crypto.randomUUID(), name, creator, createdAt:'2026-09-29T08:00:00Z', places:1, routes:1, byteSize:800 }; }
+test('shared backup renders places and routes read-only, filters, and restores personal annotations unchanged',async()=>{
+  const item=sharedItem();
+  globalThis.fetch=async url=>Response.json(String(url).endsWith('/backups') ? {items:[item]} : {summary:item,backup:sharedFixture});
+  await mount();await addPlace('我的私有地点');
+  const before=localStorage.getItem(STORAGE_KEY);
+  fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
+  fireEvent.click(await screen.findByRole('button',{name:/公开备份/}));
+  await screen.findByText('只读查看 · 个人标注未被更改',{selector:'small'});
+  assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
+  fireEvent.click(screen.getByRole('button',{name:/共享运动地点/}));
+  assert.equal(screen.queryByRole('button',{name:'编辑',exact:true}),null);
+  assert.equal(screen.queryByRole('button',{name:'删除',exact:true}),null);
+  assert.equal(localStorage.getItem(STORAGE_KEY),before);
+  fireEvent.click(screen.getByRole('button',{name:'标注详情',exact:true}));
+  assert.ok(screen.getByRole('button',{name:/共享步行路线/}));
+  fireEvent.click(screen.getByRole('button',{name:/校医院\s*0/}));
+  assert.equal(state.maps.at(-1).overlays.size,0);
+  fireEvent.click(screen.getByRole('button',{name:'Switch to English'}));
+  assert.ok(screen.getByRole('tab',{name:'Shared backups'}));
+  fireEvent.click(screen.getByRole('tab',{name:'My annotations'}));
+  assert.ok(screen.getByRole('button',{name:/我的私有地点/}));
+  assert.equal(localStorage.getItem(STORAGE_KEY),before);
+});
+test('late shared responses cannot replace newer selections or personal source',async()=>{
+  const a=sharedItem('备份 A'), b=sharedItem('备份 B'); const resolvers={};
+  globalThis.fetch=async url=>String(url).endsWith('/backups') ? Response.json({items:[a,b]}) : new Promise(resolve=>{resolvers[String(url).split('/').at(-1)]=resolve;});
+  await mount();fireEvent.click(screen.getByRole('tab',{name:'共享备份'}));
+  fireEvent.click(await screen.findByRole('button',{name:/备份 A/}));fireEvent.click(screen.getByRole('button',{name:/备份 B/}));
+  await act(async()=>{resolvers[b.id](Response.json({summary:b,backup:sharedFixture}));});
+  await waitFor(()=>assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B'));
+  await act(async()=>{resolvers[a.id](Response.json({summary:a,backup:sharedFixture}));});
+  assert.equal(document.querySelector('.shared-banner b').textContent,'备份 B');
+  fireEvent.click(screen.getByRole('button',{name:/备份 A/}));fireEvent.click(screen.getByRole('tab',{name:'我的标注'}));
+  await act(async()=>{resolvers[a.id](Response.json({summary:a,backup:sharedFixture}));});
+  assert.equal(document.querySelector('.shared-banner'),null);
+  assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false);
+});
+test('upload failure preserves form and same retry ID; success publishes saved annotations only',async()=>{
+  const sent=[];let fail=true;
+  globalThis.fetch=async(url,init)=>{
+    if(!init?.body)return Response.json({items:[]});
+    const body=JSON.parse(init.body);sent.push(body);
+    if(fail)return Response.json({error:{code:'UNAVAILABLE'}},{status:503});
+    return Response.json({summary:{...sharedItem(body.name,body.creator),id:body.id}});
+  };
+  await mount();await addPlace('待分享地点');
+  fireEvent.click(screen.getByRole('button',{name:'上传共享备份',exact:true}));
+  fireEvent.change(screen.getByLabelText('备份名称 *'),{target:{value:'我的校园地图'}});
+  fireEvent.change(screen.getByLabelText('创建者 *'),{target:{value:'小李'}});
+  fireEvent.click(screen.getAllByRole('button',{name:'上传共享备份',exact:true}).at(-1));
+  await screen.findByText('上传失败，请重试；填写的信息已保留。');
+  assert.equal(screen.getByLabelText('备份名称 *').value,'我的校园地图');
+  assert.equal(screen.getByLabelText('创建者 *').value,'小李');
+  assert.equal(screen.getByRole('tab',{name:'共享备份',hidden:true}).disabled,true);
+  fail=false;fireEvent.click(screen.getAllByRole('button',{name:'上传共享备份',exact:true}).at(-1));
+  await screen.findByText('共享备份已上传');
+  assert.equal(sent.length,2);assert.equal(sent[0].id,sent[1].id);
+  assert.equal(sent[1].backup.records[0].nameZh,'待分享地点');
+  assert.equal(saved().length,1);
+  fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true}));
+  assert.equal(screen.getByRole('tab',{name:'共享备份'}).disabled,true);
+});

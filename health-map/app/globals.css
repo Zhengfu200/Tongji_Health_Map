@@ -165,3 +165,19 @@ select:focus-visible { outline:3px solid #bad7f2; border-color:var(--primary); }
   .editor,.detail-panel { padding:6px 18px 18px; } .notification { bottom:55px; font-size:13px; }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+.source-tabs { position:sticky; top:0; z-index:2; display:flex; gap:4px; margin:18px 22px 4px; padding:4px; background:#eff5fb; border-radius:10px; }
+.source-tabs button { flex:1; padding:10px 6px; border:0; border-radius:7px; background:transparent; color:#617b98; font-size:14px; cursor:pointer; }
+.source-tabs button[aria-selected="true"] { background:white; color:#0753aa; box-shadow:0 1px 5px #12385e14; font-weight:600; }
+.source-tabs button:disabled { opacity:.5; cursor:default; }
+.shared-list { padding:18px 22px; border-bottom:1px solid var(--border); }
+.shared-list h2 { font-size:17px; }
+.shared-cards { display:grid; gap:10px; margin:12px 0; }
+.shared-card { display:grid; gap:5px; text-align:left; padding:13px 14px; background:white; border:1px solid #dce6f1; border-radius:10px; cursor:pointer; color:#244667; overflow-wrap:anywhere; }
+.shared-card:hover,.shared-card.selected { border-color:#448bec; background:#f0f6ff; }
+.shared-card b { font-size:16px; }
+.shared-card span { font-size:14px; }
+.shared-card time,.shared-card small { font-size:12px; color:#6c849c; }
+.shared-banner { display:grid; gap:6px; margin:16px 22px; padding:14px; border-left:3px solid #0753aa; background:#eef5ff; border-radius:5px; overflow-wrap:anywhere; }
+.shared-banner b { font-size:16px; }.shared-banner span { font-size:14px; }.shared-banner small { font-size:12px; color:#617b98; }
+.sidebar-footer .full-width { margin-top:6px; }
+@media (max-width:700px) { .source-tabs { margin:0 18px 4px; }.shared-list { padding:12px 18px; }.shared-banner { margin:12px 18px; } }

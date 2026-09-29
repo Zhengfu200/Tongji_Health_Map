@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { AMapController, loadAMap, planWalking, searchPlaces, type MapDraft, type SearchResult, type WalkResult } from '@/lib/amap';
 import { CATEGORIES, CATEGORY_IDS, EMPTY_DATA, LANGUAGE_KEY, MAX_BACKUP_BYTES, STORAGE_KEY, isCoordinate, parseBackup, pathDistance, recordName, saveBackup, validPath, type Backup, type Category, type Coordinate, type Language, type MapRecord, type Place, type Route } from '@/lib/model';
 import { copy, type CopyKey } from '@/lib/i18n';
+import { SharedBackupPanel, SharedUploadDialog } from '@/components/shared-backup-panel';
+import { sharedServiceEnabled, type SharedBackup } from '@/lib/shared-backups';
 
 type Mode = { kind: 'browse' } | { kind: 'place'; record: Place } | { kind: 'draw'; points: Coordinate[] } | { kind: 'route'; record: Route; editable: boolean } | { kind: 'walking'; start?: Coordinate; end?: Coordinate; picking: 'start' | 'end'; pending: boolean; result?: WalkResult; error?: CopyKey };
 type Confirmation = { kind: 'import'; backup: Backup } | { kind: 'delete'; record: MapRecord };
@@ -21,6 +23,11 @@ function Field({ title, children }: { title: string; children: ReactNode }) { re
 export default function HealthMap() {
   const [language, setLanguage] = useState<Language>('zh');
   const [data, setData] = useState<Backup>(EMPTY_DATA);
+  const [sharedView, setSharedView] = useState(false);
+  const [sharedBackup, setSharedBackup] = useState<SharedBackup>();
+  const [sharedRefresh, setSharedRefresh] = useState(0);
+  const [uploadBackup, setUploadBackup] = useState<Backup>();
+  const displayData = sharedView ? sharedBackup?.backup || EMPTY_DATA : data;
   const [hydrated, setHydrated] = useState(false);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: 'browse' });
@@ -44,10 +51,10 @@ export default function HealthMap() {
   const latest = useRef({ mode, data, language, status, storageBlocked });
   latest.current = { mode, data, language, status, storageBlocked };
   const t = (name: CopyKey) => copy[language][name];
-  const visible = data.records.filter(r => filter === 'all' || r.category === filter);
-  const selected = data.records.find(r => r.id === selectedId);
+  const visible = displayData.records.filter(r => filter === 'all' || r.category === filter);
+  const selected = displayData.records.find(r => r.id === selectedId);
   const active = mode.kind !== 'browse';
-  const mapEnabled = status === 'ready' && hydrated && !storageBlocked;
+  const mapEnabled = status === 'ready' && hydrated && !storageBlocked && !sharedView && !uploadBackup;
   const notify = (name: CopyKey, error = false) => setMessage({ key: name, error });
 
   useEffect(() => {
@@ -107,7 +114,11 @@ export default function HealthMap() {
   useEffect(() => {
     if (status !== 'ready') return;
     controller.current?.render(visible.filter(r => !(mode.kind === 'place' || mode.kind === 'route') || r.id !== mode.record.id), language, selectedId);
-  }, [data, filter, language, selectedId, mode.kind, status]);
+  }, [displayData, filter, language, selectedId, mode.kind, status]);
+  useEffect(() => {
+    if (status !== 'ready' || !sharedView || !sharedBackup) return;
+    controller.current?.focus(sharedBackup.backup.records.flatMap(r => r.kind === 'place' ? [r.position] : r.points));
+  }, [sharedBackup, sharedView, status]);
   useEffect(() => {
     if (status !== 'ready') return;
     let draft: MapDraft | undefined;
@@ -120,6 +131,7 @@ export default function HealthMap() {
   useEffect(() => { if (status === 'ready') controller.current?.setPreview(preview?.position); }, [preview, status]);
   useEffect(() => { if (status === 'ready') controller.current?.setLayer(satellite); }, [satellite, status]);
   function commit(next: Backup, recovery = false) {
+    if (sharedView) return false;
     if (storageBlocked && !recovery) { notify('restoreError', true); return false; }
     try { const clean = saveBackup(localStorage, next); setData(clean); setStorageBlocked(false); return true; }
     catch { notify('storageError', true); return false; }
@@ -162,11 +174,12 @@ export default function HealthMap() {
     catch (error) { if (sequence === walkingSequence.current) setMode({ ...captured, pending: false, error: error instanceof Error && error.message === 'NO_ROUTE' ? 'walkingEmpty' : 'walkingError' }); }
   }
   function exportData() {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const url = URL.createObjectURL(new Blob([JSON.stringify(displayData, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = `tongji-health-map-${new Date().toISOString().slice(0,10)}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function importData(file?: File) {
+    if (sharedView || active || uploadBackup) return;
     if (!file) return;
     try { if (file.size > MAX_BACKUP_BYTES) throw new Error('TOO_LARGE'); setConfirmation({ kind: 'import', backup: parseBackup(await file.text()) }); }
     catch { notify('badImport', true); }
@@ -179,6 +192,12 @@ export default function HealthMap() {
   }
   function switchLanguage() { const next = language === 'zh' ? 'en' : 'zh'; setLanguage(next); try { localStorage.setItem(LANGUAGE_KEY, next); } catch { notify('languageError', true); } }
   function selectRecord(r: MapRecord) { setSelectedId(r.id); setPreview(undefined); controller.current?.focus(r.kind === 'place' ? [r.position] : r.points); }
+  function switchSource(shared: boolean) {
+    if (active || confirmation || uploadBackup) return;
+    searchSequence.current++; walkingSequence.current++;
+    setSharedView(shared); setSharedBackup(undefined); setSelectedId(undefined); setFilter('all');
+    setResults(undefined); setSearchError(undefined); setSearchPending(false); setPreview(undefined); setPanelOpen(true);
+  }
   useEffect(() => {
     const context = (document as Document & { modelContext?: { registerTool: (tool: object, options: { signal: AbortSignal }) => unknown } }).modelContext;
     if (!context?.registerTool) return;
@@ -253,34 +272,39 @@ export default function HealthMap() {
     if (!selected) return null;
     const route = selected.kind === 'route';
     return <section className="detail-panel">
-      <Button variant="ghost" onClick={() => setSelectedId(undefined)}><ArrowLeft />{t('saved')}</Button>
+      <Button variant="ghost" onClick={() => setSelectedId(undefined)}><ArrowLeft />{t(sharedView ? 'detail' : 'saved')}</Button>
       <div className="detail-category" style={{ color: selected.kind === 'route' ? '#007da3' : CATEGORIES[selected.category].color }}>{route ? <RouteIcon size={20} /> : <MapPin size={20} />}{selected.kind === 'route' ? t('relaxation') : CATEGORIES[selected.category][language]}</div>
       <h2>{recordName(selected, language)}</h2>
       {language === 'zh' && selected.nameEn && <p className="subtle">{selected.nameEn}</p>}
       <p className="description">{selected.description || t('noDescription')}</p>
       {selected.kind === 'place' ? <dl className="detail-fields">{([[t('address'), selected.address], [t('hours'), selected.hours], [t('contact'), selected.contact], [t('position'), positionText(selected.position)]]).filter(([,v]) => v).map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <><div className="route-stats"><span>{t('routeLength')}<b>{distance(selected.distance)}</b></span>{selected.duration !== undefined && <span>{t('estimatedTime')}<b>{Math.ceil(selected.duration/60)} {t('minutes')}</b></span>}</div><p className="subtle">{t('source')}: {t(selected.source === 'manual' ? 'manual' : 'walking')}</p><p className="subtle">{t('distanceNotice')}</p></>}
-      <div className="editor-actions"><Button variant="outline" disabled={!mapEnabled} onClick={() => editRecord(selected)}><Pencil />{t('edit')}</Button><Button variant="outline" className="danger-button" disabled={storageBlocked} onClick={() => setConfirmation({ kind: 'delete', record: selected })}><Trash2 />{t('remove')}</Button></div>
+      {!sharedView && <div className="editor-actions"><Button variant="outline" disabled={!mapEnabled} onClick={() => editRecord(selected)}><Pencil />{t('edit')}</Button><Button variant="outline" className="danger-button" disabled={storageBlocked} onClick={() => setConfirmation({ kind: 'delete', record: selected })}><Trash2 />{t('remove')}</Button></div>}
     </section>;
   }
   return <main className="health-app">
     <header className="app-header">
       <a href="/" className="brand" aria-label="Tongji Health Map"><span className="brand-mark"><HeartPulse /></span><span><b>TONGJI <span>HEALTH MAP</span></b><small>{language === 'zh' ? '同济大学 · 健康生活地图' : 'Tongji University · Health resources'}</small></span></a>
-      <div className="header-meta"><span className="campus-label"><MapPin size={15} />{t('campus')}</span><span className="local-label"><ShieldCheck size={15} />{t('local')}</span></div>
+      <div className="header-meta"><span className="campus-label"><MapPin size={15} />{t('campus')}</span><span className="local-label"><ShieldCheck size={15} />{t(sharedView ? 'shared' : 'local')}</span></div>
       <Button variant="ghost" className="language-toggle" onClick={switchLanguage} aria-label={language === 'zh' ? 'Switch to English' : '切换为中文'}><Globe2 size={17} />{language === 'zh' ? 'EN' : '中文'}</Button>
     </header>
     <div className="workspace">
       <aside className={`sidebar ${panelOpen ? 'expanded' : 'collapsed'}`} aria-label={t('resources')}>
         <button className="mobile-handle" onClick={() => setPanelOpen(!panelOpen)} aria-expanded={panelOpen}><span />{t(panelOpen ? 'hidePanel' : 'viewPanel')}{panelOpen ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
         <div className="sidebar-scroll">
+          <div className="source-tabs" role="tablist" aria-label={t('source')} onKeyDown={e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key) || active || confirmation || uploadBackup) return; e.preventDefault(); switchSource(!sharedView); document.getElementById(sharedView ? 'mine-tab' : 'shared-tab')?.focus(); }}><button id="mine-tab" role="tab" aria-controls="source-content" aria-selected={!sharedView} tabIndex={sharedView ? -1 : 0} disabled={active || !!confirmation || !!uploadBackup} onClick={() => switchSource(false)}>{t('saved')}</button><button id="shared-tab" role="tab" aria-controls="source-content" aria-selected={sharedView} tabIndex={sharedView ? 0 : -1} disabled={active || !!confirmation || !!uploadBackup} onClick={() => switchSource(true)}>{t('shared')}</button></div>
+          <div id="source-content" role="tabpanel" aria-labelledby={sharedView ? 'shared-tab' : 'mine-tab'}>
+          {sharedView && <SharedBackupPanel language={language} refresh={sharedRefresh} selectedId={sharedBackup?.summary.id} onLoaded={value => { setSharedBackup(value); setSelectedId(undefined); setFilter('all'); setPreview(undefined); }} />}
+          {sharedView && sharedBackup && <div className="shared-banner"><b>{sharedBackup.summary.name}</b><span>{t('creator')}: {sharedBackup.summary.creator}</span><small>{t('sharedReadonly')}</small><Button variant="outline" size="sm" onClick={() => switchSource(false)}>{t('returnMine')}</Button></div>}
           {storageBlocked && <p className="inline-error" role="alert">{t('restoreError')}</p>}
-          {mode.kind === 'place' || mode.kind === 'route' ? renderForm() : mode.kind === 'walking' ? renderWalking() : mode.kind === 'draw' ? <section className="editor drawing-panel"><span className="section-icon"><RouteIcon /></span><h2>{t('drawing')}</h2><p className="instruction">{t('drawingHelp')}</p><div className="route-stats"><span>{t('vertices')}<b>{mode.points.length}</b></span><span>{t('routeLength')}<b>{distance(pathDistance(mode.points))}</b></span></div><Button variant="outline" className="full-width" disabled={!mode.points.length} onClick={() => setMode({ ...mode, points: mode.points.slice(0,-1) })}><Undo2 />{t('undo')}</Button><Button className="full-width" disabled={!validPath(mode.points)} onClick={() => setMode({ kind: 'route', record: makeRoute(mode.points), editable: true })}><Check />{t('finish')}</Button><Button variant="ghost" className="full-width" onClick={cancel}>{t('cancel')}</Button></section> : selected ? renderDetails() : <>
-            <section className="search-section"><div className="section-heading"><h1>{t('resources')}</h1><span className="small-badge">{t('campus')}</span></div><form className="search-box" onSubmit={e => { e.preventDefault(); void runSearch(); }}><Search size={18} /><Input aria-label={t('search')} placeholder={t('searchPlaceholder')} value={query} disabled={!mapEnabled} maxLength={100} onChange={e => setQuery(e.target.value)} /><Button type="submit" size="icon-sm" disabled={!mapEnabled || !query.trim() || searchPending} aria-label={t('search')}><Search size={16} /></Button></form></section>
+          {mode.kind === 'place' || mode.kind === 'route' ? renderForm() : mode.kind === 'walking' ? renderWalking() : mode.kind === 'draw' ? <section className="editor drawing-panel"><span className="section-icon"><RouteIcon /></span><h2>{t('drawing')}</h2><p className="instruction">{t('drawingHelp')}</p><div className="route-stats"><span>{t('vertices')}<b>{mode.points.length}</b></span><span>{t('routeLength')}<b>{distance(pathDistance(mode.points))}</b></span></div><Button variant="outline" className="full-width" disabled={!mode.points.length} onClick={() => setMode({ ...mode, points: mode.points.slice(0,-1) })}><Undo2 />{t('undo')}</Button><Button className="full-width" disabled={!validPath(mode.points)} onClick={() => setMode({ kind: 'route', record: makeRoute(mode.points), editable: true })}><Check />{t('finish')}</Button><Button variant="ghost" className="full-width" onClick={cancel}>{t('cancel')}</Button></section> : selected ? renderDetails() : sharedView && !sharedBackup ? null : <>
+            {!sharedView && <section className="search-section"><div className="section-heading"><h1>{t('resources')}</h1><span className="small-badge">{t('campus')}</span></div><form className="search-box" onSubmit={e => { e.preventDefault(); void runSearch(); }}><Search size={18} /><Input aria-label={t('search')} placeholder={t('searchPlaceholder')} value={query} disabled={!mapEnabled} maxLength={100} onChange={e => setQuery(e.target.value)} /><Button type="submit" size="icon-sm" disabled={!mapEnabled || !query.trim() || searchPending} aria-label={t('search')}><Search size={16} /></Button></form></section>}
             {(results !== undefined || searchError || searchPending) && <section className="search-results"><div className="section-heading"><h2>{t('searchResults')}</h2><Button variant="ghost" size="icon-sm" aria-label={t('close')} onClick={() => { searchSequence.current++; setResults(undefined); setSearchError(undefined); setSearchPending(false); setPreview(undefined); }}><X /></Button></div>{searchPending && <p className="subtle" role="status">{t('searchBusy')}</p>}{searchError && <p className="subtle" role="status">{t(searchError)}</p>}{results?.map(poi => <div key={poi.id} className={`search-result ${preview?.id === poi.id ? 'selected' : ''}`}><button onClick={() => setPreview(poi)}><MapPin size={18} /><span><b>{poi.name}</b><small>{poi.address}</small></span></button>{preview?.id === poi.id && <Button size="sm" className="full-width" onClick={() => preparePlace(poi.position, poi)}>{t('confirmPlace')}</Button>}</div>)}</section>}
-            <section className="category-section"><div className="category-grid"><button className={`category-chip ${filter === 'all' ? 'selected' : ''}`} onClick={() => { setFilter('all'); setPreview(undefined); }}><Layers size={16} />{t('all')}<span>{data.records.length}</span></button>{CATEGORY_IDS.map(id => <button className={`category-chip ${filter === id ? 'selected' : ''}`} style={{ '--category-color': CATEGORIES[id].color } as CSSProperties} key={id} onClick={() => { setFilter(id); setPreview(undefined); }}><i>{CATEGORIES[id].symbol}</i>{CATEGORIES[id][language]}<span>{data.records.filter(r => r.category === id).length}</span></button>)}<button className={`category-chip ${filter === 'relaxation' ? 'selected' : ''}`} onClick={() => { setFilter('relaxation'); setPreview(undefined); }}><RouteIcon size={16} />{t('relaxation')}<span>{data.records.filter(r => r.kind === 'route').length}</span></button></div></section>
-            <section className="annotations"><div className="section-heading"><h2>{t('saved')}</h2><span className="annotation-count">{visible.length}</span></div>{visible.length ? <div className="record-list">{visible.map(r => <button className="record-card" key={r.id} onClick={() => selectRecord(r)}><span className="record-icon" style={{ color: r.kind === 'place' ? CATEGORIES[r.category].color : '#007da3' }}>{r.kind === 'place' ? CATEGORIES[r.category].symbol : <RouteIcon size={20} />}</span><span><b>{recordName(r, language)}</b><small>{r.kind === 'place' ? CATEGORIES[r.category][language] : `${t('relaxation')} · ${distance(r.distance)}`}</small></span><ChevronDown className="card-chevron" size={16} /></button>)}</div> : <div className="empty-state"><span><MapPin size={28} /></span><h3>{filter === 'all' ? t('emptyTitle') : t('filteredEmpty')}</h3><p>{t('emptyBody')}</p></div>}</section>
+            <section className="category-section"><div className="category-grid"><button className={`category-chip ${filter === 'all' ? 'selected' : ''}`} onClick={() => { setFilter('all'); setPreview(undefined); }}><Layers size={16} />{t('all')}<span>{displayData.records.length}</span></button>{CATEGORY_IDS.map(id => <button className={`category-chip ${filter === id ? 'selected' : ''}`} style={{ '--category-color': CATEGORIES[id].color } as CSSProperties} key={id} onClick={() => { setFilter(id); setPreview(undefined); }}><i>{CATEGORIES[id].symbol}</i>{CATEGORIES[id][language]}<span>{displayData.records.filter(r => r.category === id).length}</span></button>)}<button className={`category-chip ${filter === 'relaxation' ? 'selected' : ''}`} onClick={() => { setFilter('relaxation'); setPreview(undefined); }}><RouteIcon size={16} />{t('relaxation')}<span>{displayData.records.filter(r => r.kind === 'route').length}</span></button></div></section>
+            <section className="annotations"><div className="section-heading"><h2>{t(sharedView ? 'sharedAnnotations' : 'saved')}</h2><span className="annotation-count">{visible.length}</span></div>{visible.length ? <div className="record-list">{visible.map(r => <button className="record-card" key={r.id} onClick={() => selectRecord(r)}><span className="record-icon" style={{ color: r.kind === 'place' ? CATEGORIES[r.category].color : '#007da3' }}>{r.kind === 'place' ? CATEGORIES[r.category].symbol : <RouteIcon size={20} />}</span><span><b>{recordName(r, language)}</b><small>{r.kind === 'place' ? CATEGORIES[r.category][language] : `${t('relaxation')} · ${distance(r.distance)}`}</small></span><ChevronDown className="card-chevron" size={16} /></button>)}</div> : <div className="empty-state"><span><MapPin size={28} /></span><h3>{filter === 'all' ? t('emptyTitle') : t('filteredEmpty')}</h3><p>{t('emptyBody')}</p></div>}</section>
           </>}
+          </div>
         </div>
-        <footer className="sidebar-footer"><div><Button variant="ghost" size="sm" disabled={!hydrated} onClick={exportData}><ArrowDownToLine />{t('export')}</Button><Button variant="ghost" size="sm" disabled={!hydrated || active} onClick={() => fileInput.current?.click()}><ArrowUpFromLine />{t('import')}</Button></div><p>{t('localNotice')}</p><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => void importData(e.target.files?.[0])} /></footer>
+        <footer className="sidebar-footer"><div><Button variant="ghost" size="sm" disabled={!hydrated || (sharedView && !sharedBackup)} onClick={exportData}><ArrowDownToLine />{t(sharedView ? 'downloadShared' : 'export')}</Button>{!sharedView && <Button variant="ghost" size="sm" disabled={!hydrated || active || !!uploadBackup} onClick={() => fileInput.current?.click()}><ArrowUpFromLine />{t('import')}</Button>}</div>{!sharedView && <Button className="full-width" variant="outline" size="sm" disabled={!hydrated || active || storageBlocked || !data.records.length || !sharedServiceEnabled} onClick={() => setUploadBackup(data)}>{t('uploadShared')}</Button>}<p>{t(sharedView ? 'sharedReadonly' : 'localNotice')}</p><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => void importData(e.target.files?.[0])} /></footer>
       </aside>
       <section className="map-area" aria-label={language === 'zh' ? '校园地图' : 'Campus map'}>
         <div ref={mapElement} className="map-container" />
@@ -288,11 +312,12 @@ export default function HealthMap() {
         <div className="map-toolbar"><Button disabled={!mapEnabled || active} onClick={() => preparePlace()}><Plus /><span>{t('addPlace')}</span></Button><Button variant="outline" disabled={!mapEnabled || active} onClick={() => startDraw()}><RouteIcon /><span>{t('drawRoute')}</span></Button><Button variant="outline" disabled={!mapEnabled || active} onClick={() => { setSelectedId(undefined); setPreview(undefined); setPanelOpen(true); setMode({ kind: 'walking', picking: 'start', pending: false }); }}><Navigation /><span>{t('planRoute')}</span></Button></div>
         {active && <div className="map-instruction"><MapPin size={17} /><span>{mode.kind === 'place' ? t('pickPlace') : mode.kind === 'draw' ? t('drawing') : mode.kind === 'walking' ? t(mode.picking === 'start' ? 'pickStart' : 'pickEnd') : mode.editable ? t('nodeEdit') : t('planned')}</span></div>}
         <div className="map-controls"><Button variant="outline" size="icon" disabled={status !== 'ready'} aria-label={t('home')} title={t('home')} onClick={() => controller.current?.home()}><LocateFixed /></Button><div><Button variant="outline" size="icon" disabled={status !== 'ready'} aria-label={t('zoomIn')} onClick={() => controller.current?.map.zoomIn()}><Plus /></Button><Button variant="outline" size="icon" disabled={status !== 'ready'} aria-label={t('zoomOut')} onClick={() => controller.current?.map.zoomOut()}><Minus /></Button></div><Button variant="outline" size="icon" disabled={status !== 'ready'} aria-label={t(satellite ? 'standard' : 'satellite')} title={t(satellite ? 'standard' : 'satellite')} aria-pressed={satellite} onClick={() => setSatellite(!satellite)}><Layers /></Button></div>
-        <div className="map-context"><span><MapPin size={14} />{t('campus')}</span><span>{data.records.length} {t('total')}</span></div>
+        <div className="map-context"><span><MapPin size={14} />{t('campus')}</span><span>{displayData.records.length} {t('total')}</span></div>
         <div className="map-legend"><RouteIcon size={16} /><span>{t('relaxation')}</span></div>
       </section>
     </div>
     {message && <div className={`notification ${message.error ? 'error' : ''}`} role={message.error ? 'alert' : 'status'}><span>{t(message.key)}</span><Button size="icon-sm" variant="ghost" aria-label={t('close')} onClick={() => setMessage(undefined)}><X /></Button></div>}
+    {uploadBackup && <SharedUploadDialog backup={uploadBackup} language={language} onClose={() => setUploadBackup(undefined)} onUploaded={() => { setUploadBackup(undefined); setSharedRefresh(value => value + 1); notify('sharedUploaded'); }} />}
     <Dialog open={!!confirmation} onOpenChange={open => { if (!open) setConfirmation(undefined); }}><DialogContent className="confirm-dialog" showCloseButton={false}><DialogTitle>{t(confirmation?.kind === 'import' ? 'importTitle' : 'deleteTitle')}</DialogTitle><DialogDescription>{t(confirmation?.kind === 'import' ? 'importBody' : 'deleteBody')}</DialogDescription>{confirmation?.kind === 'import' ? <p className="import-count">{confirmation.backup.records.filter(r => r.kind === 'place').length} {t('places')} · {confirmation.backup.records.filter(r => r.kind === 'route').length} {t('routes')}</p> : confirmation && <p>{recordName(confirmation.record, language)}</p>}<div className="editor-actions"><Button variant="outline" onClick={() => setConfirmation(undefined)}>{t('cancel')}</Button><Button className={confirmation?.kind === 'delete' ? 'danger-solid' : ''} onClick={confirmAction}>{t(confirmation?.kind === 'import' ? 'replace' : 'remove')}</Button></div></DialogContent></Dialog>
   </main>;
 }

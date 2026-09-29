@@ -47,6 +47,8 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+.dev.vars*
+!.dev.vars.example
 
 .vercel
 .env*

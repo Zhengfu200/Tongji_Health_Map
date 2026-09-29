@@ -1,6 +1,7 @@
 # Local credentials and runtime state
 .env*
 !.env.example
+**/.dev.vars*
 .sites-runtime/
 .wrangler/
 .agents/
