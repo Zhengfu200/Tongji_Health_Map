@@ -1,6 +1,6 @@
 # 又拍云共享备份接口
 
-网站继续通过 NEXT_PUBLIC_SHARED_BACKUPS_API_URL 调用 tongji-health-map-backups Worker。Worker 用 D1 查询共享列表，用又拍云云存储保存 backups/<UUID>.json。浏览器不直接请求又拍云，无需为这一阶段准备已备案域名或配置 CDN 跨域。旧 GitHub 仓库保留作历史归档；新服务从空列表开始，不迁移旧备份。
+Cloudflare Pages 网站通过同域 `/api/backups` 调用 Pages Function；Function 使用 `SHARED_BACKUPS` 服务绑定调用 tongji-health-map-backups Worker。Worker 用 D1 查询共享列表，用又拍云云存储保存 backups/<UUID>.json。浏览器不直接请求 Worker 的 workers.dev 域名或又拍云。旧 GitHub 仓库保留作历史归档；新服务从空列表开始，不迁移旧备份。
 
 ## 又拍云准备
 
@@ -23,9 +23,11 @@ Cloudflare 账号已创建亚太区域 D1 数据库 tongji-shared-backups，数�
     npm.cmd run shared:secret
     npm.cmd run shared:deploy
 
-shared:secret 从忽略的 .dev.vars 读取 UPYUN_PASSWORD 和 ADMIN_TOKEN，通过标准输入设置 Worker Secret，不打印值。shared:deploy 发布至现有 https://tongji-health-map-backups.lgy0822.workers.dev。生产 Pages 已配置这个 API 地址，API 路径和返回 JSON 未改变；前端文案更新需通过原有 Pages 构建发布。不要在又拍云服务和 Secret 未准备好时发布新 Worker。
+shared:secret 从忽略的 .dev.vars 读取 UPYUN_PASSWORD 和 ADMIN_TOKEN，通过标准输入设置 Worker Secret，不打印值。shared:deploy 发布现有 Worker。不要在又拍云服务和 Secret 未准备好时发布新 Worker。
 
-旧 Worker 的 GITHUB_TOKEN Secret 已在切换后移除。若旧 GitHub 令牌只供备份仓库使用，请在 GitHub 账户设置中撤销；仓库本身继续保留。当前网络无法访问 workers.dev，生产浏览器验收和国内加载时间对比仍待在可访问网络完成。
+Pages 项目 tongji-health-map 的 Production 和 Preview 都要将 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL` 设为 `/api`，并将服务绑定 `SHARED_BACKUPS` 指向 Worker `tongji-health-map-backups`。提交 `health-map/functions` 的代理路由后重新构建 Pages；浏览器请求 `/api/backups` 和 `/api/backups/<UUID>`。`public/_routes.json` 限制 Functions 只处理备份 API，地图静态文件仍由 Pages 提供。其他站点的 API 环境变量暂不修改。旧 workers.dev 地址短期保留作回退入口。
+
+旧 Worker 的 GITHUB_TOKEN Secret 已在切换后移除。若旧 GitHub 令牌只供备份仓库使用，请在 GitHub 账户设置中撤销；仓库本身继续保留。
 
 本地真实又拍云联调：执行 npm.cmd run shared:db:local，配置 .dev.vars，再启动 npm.cmd run shared:dev；把前端本地环境变量 NEXT_PUBLIC_SHARED_BACKUPS_API_URL 设为 http://localhost:8787 并重启前端。本地真实上传会写入又拍云服务。
 
@@ -42,7 +44,7 @@ shared:secret 从忽略的 .dev.vars 读取 UPYUN_PASSWORD 和 ADMIN_TOKEN，通
 
     $env:TONGJI_ADMIN_TOKEN = '<ADMIN_TOKEN>'
     $backupId = '<要删除的 UUID>'
-    Invoke-RestMethod -Method Delete -Uri "https://tongji-health-map-backups.lgy0822.workers.dev/admin/backups/$backupId" -Headers @{ Authorization = "Bearer $env:TONGJI_ADMIN_TOKEN" }
+    Invoke-RestMethod -Method Delete -Uri "https://tongji-health-map.pages.dev/api/admin/backups/$backupId" -Headers @{ Authorization = "Bearer $env:TONGJI_ADMIN_TOKEN" }
 
 ## 隔离验证与上线检查
 
@@ -52,4 +54,4 @@ shared:secret 从忽略的 .dev.vars 读取 UPYUN_PASSWORD 和 ADMIN_TOKEN，通
 
 预览 Worker 使用本地 D1 与内存模拟又拍云，不会读取真实凭据或写入真实服务。它仅供测试，提供 POST /__test/backups/<id>/delete-file 以模拟文件丢失；生产 Worker 没有此路径。
 
-上线前，在国内同一网络记录旧接口 GET /backups 和一条 GET /backups/<id> 的浏览器 Network 耗时；上线后用新备份重复测量。再用两个独立浏览器验证上传、列表、只读加载、删除以及个人标注保持不变。检查 Worker 错误和 D1 读写用量；D1 免费额度耗尽时查询会失败。由于浏览器仍访问 workers.dev，提速幅度以实际测量为准。
+在国内同一网络比较旧 workers.dev 接口与 Pages 同域 `/api/backups` 的浏览器 Network 成功率和耗时，并用两个独立浏览器验证上传、列表、只读加载、删除以及个人标注保持不变。确认浏览器的共享备份请求均指向 pages.dev，不再直连 workers.dev。检查 Worker 错误和 D1 读写用量；D1 免费额度耗尽时查询会失败。Pages Function 与 Worker 仍运行在 Cloudflare 网络，具体提速幅度以实际测量为准。
