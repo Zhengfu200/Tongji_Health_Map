@@ -1,5 +1,14 @@
 # 共享备份验证记录
 
+## Pages 同域代理（2026-09-30）
+
+- Cloudflare Pages Production 和 Preview 均配置 `SHARED_BACKUPS` 服务绑定及 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL=/api`；Pages 构建根目录仍为 `health-map`，静态输出仍为 `out`。Worker、D1 和又拍云服务未迁移，旧 workers.dev 入口暂留作回退。
+- 本地 51 项测试通过，静态构建成功；构建产物的 `_routes.json` 只将备份 API 交给 Functions。本地 Pages dev → 服务绑定 → 本地 Worker → 真实又拍云完成列表、上传、详情、同 ID 重试和管理删除；模拟不同 `CF-Connecting-IP` 时，单 IP 第 4 次上传返回 429，另一 IP 仍可请求。
+- 预览部署 `0bf9c191-ebde-4619-9ca6-d1823c757259` 成功，页面和 `/api/backups` 均返回 200，已有备份详情可读；通过预览同域 API 上传、读取、重试、删除了测试备份。
+- 生产部署 `6afc6f63-9f64-481e-a7ac-d32b5d6c3869` 成功并启用 Functions。页面、列表和已有备份详情返回 200；生产同域 API 的测试备份上传、读取、重试、删除成功，删除后详情返回 404。生产浏览器脚本包含 `/api` 配置，未包含旧 workers.dev API 地址。
+- 本机同一网络对生产同域 API 各请求 5 次，列表 5/5 成功、中位耗时 381 ms；详情 5/5 成功、中位耗时 958 ms。旧 workers.dev 地址在该网络仍超时，无法得到有效的旧接口耗时。D1 验收后有 1 条原有 ready 记录和 2 条测试产生的 deleted 记录，测试备份文件已删除。
+- 桌面浏览器控制本次不可用，未完成两个独立浏览器中的实际页面点击和个人 localStorage 对比；现有自动化 UI 测试覆盖共享只读视图和个人标注保持不变。仍需在最终使用地点按浏览器 Network 复测加载时间。
+
 ## 又拍云 + D1 迁移（2026-09-30）
 
 - 已在 Cloudflare 账号创建亚太区域 D1 数据库 tongji-shared-backups，并应用初始表迁移；生产库无备份记录，按既定选择从空列表开始。
