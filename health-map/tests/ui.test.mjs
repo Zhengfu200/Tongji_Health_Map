@@ -10,18 +10,84 @@ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 process.env.NEXT_PUBLIC_AMAP_KEY='test-only';process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE='test-only';
 process.env.NEXT_PUBLIC_SHARED_BACKUPS_API_URL='http://localhost:8787';
 const originalFetch = globalThis.fetch;
-const {render,screen,fireEvent,waitFor,cleanup,act}=await import('@testing-library/react');
+const {render,screen,fireEvent,waitFor,cleanup,act,within}=await import('@testing-library/react');
 const {default:HealthMap}=await import('../components/health-map.tsx');
 const {STORAGE_KEY,EMPTY_DATA}=await import('../lib/model.ts');
+const {GUIDE_HIDDEN_KEY}=await import('../lib/user-guide.ts');
 let sdk,state;
 beforeEach(()=>{window.localStorage.clear();const mock=createMockSdk();sdk=mock.sdk;state=mock.state;window.AMapLoader={load:async()=>sdk};globalThis.localStorage=window.localStorage;});
 afterEach(()=>{cleanup();globalThis.fetch=originalFetch;});
-async function mount(){render(React.createElement(HealthMap));await waitFor(()=>assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false));}
+async function dismissGuide(){const dialog=await screen.findByRole('dialog',{name:/^(使用说明|User guide)$/});fireEvent.click(within(dialog).getByRole('button',{name:/^(关闭|Close)$/}));await waitFor(()=>assert.equal(screen.queryByRole('dialog',{name:/^(使用说明|User guide)$/}),null));}
+async function mount(){render(React.createElement(HealthMap));if(localStorage.getItem(GUIDE_HIDDEN_KEY)!=='true')await dismissGuide();await waitFor(()=>assert.equal(screen.getByRole('button',{name:/^(标注地点|Add place)$/}).disabled,false));}
 function clickMap(p){act(()=>state.maps.at(-1).click(p));}
 const saved=()=>JSON.parse(window.localStorage.getItem(STORAGE_KEY)).records;
 async function addPlace(name='测试地点'){
   fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true}));clickMap([121.5016,31.2848]);fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:name}});fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
 }
+test('guide appears on every visit until opted out and can be reopened and enabled again',async()=>{
+  render(React.createElement(HealthMap));
+  let dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  assert.ok(within(dialog).getByRole('heading',{name:'共享备份如何工作'}));
+  assert.equal(within(dialog).getByRole('checkbox',{name:'不再显示'}).getAttribute('aria-checked'),'false');
+  await dismissGuide(); assert.equal(localStorage.getItem(GUIDE_HIDDEN_KEY),null);
+  cleanup(); render(React.createElement(HealthMap)); dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  fireEvent.click(within(dialog).getByRole('checkbox',{name:'不再显示'})); await dismissGuide();
+  assert.equal(localStorage.getItem(GUIDE_HIDDEN_KEY),'true');
+  cleanup(); await mount(); assert.equal(screen.queryByRole('dialog'),null);
+  fireEvent.click(screen.getByRole('button',{name:'使用说明',exact:true}));
+  dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  assert.equal(within(dialog).getByRole('checkbox',{name:'不再显示'}).getAttribute('aria-checked'),'true');
+  fireEvent.click(within(dialog).getByRole('checkbox',{name:'不再显示'})); await dismissGuide();
+  assert.equal(localStorage.getItem(GUIDE_HIDDEN_KEY),null);
+  cleanup(); render(React.createElement(HealthMap)); await screen.findByRole('dialog',{name:'使用说明'});
+});
+test('guide language follows saved language and switching keeps checkbox and place draft',async()=>{
+  localStorage.setItem('tongji-health-map:language','en');
+  render(React.createElement(HealthMap));
+  let dialog=await screen.findByRole('dialog',{name:'User guide'});
+  assert.ok(within(dialog).getByRole('heading',{name:'How shared backups work'}));
+  fireEvent.click(within(dialog).getByRole('checkbox',{name:'Don’t show again'}));
+  fireEvent.click(within(dialog).getByRole('button',{name:'切换为中文'}));
+  dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  assert.equal(within(dialog).getByRole('checkbox',{name:'不再显示'}).getAttribute('aria-checked'),'true');
+  assert.equal(localStorage.getItem('tongji-health-map:language'),'zh');
+  await dismissGuide();
+  await waitFor(()=>assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false));
+  fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true}));clickMap([121.5016,31.2848]);
+  fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'说明期间保留的草稿'}});
+  fireEvent.click(screen.getByRole('button',{name:'使用说明',exact:true}));
+  dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  fireEvent.click(within(dialog).getByRole('button',{name:'Switch to English'}));
+  await dismissGuide();
+  assert.equal(screen.getByLabelText('Chinese name *').value,'说明期间保留的草稿');
+  fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));assert.equal(saved()[0].nameZh,'说明期间保留的草稿');
+  cleanup();await mount();assert.equal(document.documentElement.lang,'en');
+});
+test('guide preference write failure still closes, reports error, and preserves personal data',async()=>{
+  await mount();await addPlace();const before=localStorage.getItem(STORAGE_KEY);
+  fireEvent.click(screen.getByRole('button',{name:'使用说明',exact:true}));
+  const dialog=await screen.findByRole('dialog',{name:'使用说明'});
+  fireEvent.click(within(dialog).getByRole('checkbox',{name:'不再显示'}));
+  const original=dom.window.Storage.prototype.setItem;
+  dom.window.Storage.prototype.setItem=function(key,value){if(key===GUIDE_HIDDEN_KEY)throw Error('QuotaExceededError');return original.call(this,key,value);};
+  try {await dismissGuide();assert.ok(screen.getByText(/说明显示偏好未能保存/));assert.equal(localStorage.getItem(STORAGE_KEY),before);assert.equal(localStorage.getItem(GUIDE_HIDDEN_KEY),null);}
+  finally{dom.window.Storage.prototype.setItem=original;}
+});
+test('guide preference read failure does not block map and escape saves the preference',async()=>{
+  const original=dom.window.Storage.prototype.getItem;
+  dom.window.Storage.prototype.getItem=function(key){if(key===GUIDE_HIDDEN_KEY)throw Error('SecurityError');return original.call(this,key);};
+  try {render(React.createElement(HealthMap));const dialog=await screen.findByRole('dialog',{name:'使用说明'});fireEvent.click(within(dialog).getByRole('checkbox',{name:'不再显示'}));fireEvent.keyDown(document,{key:'Escape',code:'Escape'});await waitFor(()=>assert.equal(screen.queryByRole('dialog'),null));await waitFor(()=>assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false));}
+  finally{dom.window.Storage.prototype.getItem=original;}
+  assert.equal(localStorage.getItem(GUIDE_HIDDEN_KEY),'true');
+});
+test('guide retains route geometry and restores focus to the header entry',async()=>{
+  await mount();fireEvent.click(screen.getByRole('button',{name:'绘制路线',exact:true}));clickMap([121.5016,31.2848]);clickMap([121.502,31.285]);
+  fireEvent.click(screen.getByRole('button',{name:'完成绘制'}));fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'保留路线'}});
+  fireEvent.click(screen.getByRole('button',{name:'使用说明',exact:true}));await dismissGuide();
+  await waitFor(()=>assert.equal(document.activeElement,screen.getByRole('button',{name:'使用说明',exact:true})));
+  assert.equal(screen.getByLabelText('中文名称 *').value,'保留路线');
+  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));assert.equal(saved()[0].points.length,2);
+});
 test('place photo upload blocks save, keeps latest edits, persists on refresh and supports removal',async()=>{
   await mount(); fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true})); clickMap([121.5016,31.2848]);
   fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'图片地点'}});
@@ -102,7 +168,7 @@ test('quota failure retains original record and shows failure without success',a
   try{fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));assert.ok(screen.getByText(/保存失败/));assert.equal(saved()[0].nameZh,'测试地点');assert.ok(screen.getByRole('textbox',{name:'中文名称 *'}));}finally{dom.window.Storage.prototype.setItem=original;}
 });
 test('corrupt local data is retained and blocks new edits',async()=>{
-  window.localStorage.setItem(STORAGE_KEY,'{corrupted');render(React.createElement(HealthMap));await screen.findByText(/本地数据无法读取/);assert.equal(window.localStorage.getItem(STORAGE_KEY),'{corrupted');assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
+  window.localStorage.setItem(STORAGE_KEY,'{corrupted');render(React.createElement(HealthMap));await dismissGuide();await screen.findByText(/本地数据无法读取/);assert.equal(window.localStorage.getItem(STORAGE_KEY),'{corrupted');assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
 });
 test('language switch persists and English uses Chinese name fallback',async()=>{
   await mount();await addPlace();fireEvent.click(screen.getByRole('button',{name:'Switch to English'}));assert.equal(document.documentElement.lang,'en');assert.equal(window.localStorage.getItem('tongji-health-map:language'),'en');assert.ok(screen.getByRole('heading',{name:'测试地点'}));
@@ -118,7 +184,7 @@ test('canceling pending walking request ignores late result; unmount destroys SD
   let callback; sdk.Walking=class{search(a,b,cb){callback=cb;}};await mount();fireEvent.click(screen.getByRole('button',{name:'步行规划',exact:true}));clickMap([121.5016,31.2848]);clickMap([121.5025,31.2853]);fireEvent.click(screen.getByRole('button',{name:'生成步行路线'}));fireEvent.click(screen.getAllByRole('button',{name:'取消',exact:true}).at(-1));await act(async()=>callback('complete',state.walkingResult));assert.equal(screen.queryByRole('button',{name:'保存路线'}),null);cleanup();assert.equal(state.maps[0].destroyed,true);
 });
 test('map loading error is visible and retry initializes a working map',async()=>{
-  window.AMapLoader={load:async()=>{throw new Error('INVALID_USER_KEY');}};render(React.createElement(HealthMap));await screen.findByText('地图未能加载');assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
+  window.AMapLoader={load:async()=>{throw new Error('INVALID_USER_KEY');}};render(React.createElement(HealthMap));await dismissGuide();await screen.findByText('地图未能加载');assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,true);
   window.AMapLoader={load:async()=>sdk};fireEvent.click(screen.getByRole('button',{name:'重新加载'}));await waitFor(()=>assert.equal(screen.getByRole('button',{name:'标注地点',exact:true}).disabled,false));
 });
 test('category filter hides saved places from both list and SDK overlays',async()=>{

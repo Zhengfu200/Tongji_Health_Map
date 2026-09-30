@@ -1,6 +1,7 @@
 import type { Language } from './model';
 export const copy = {
   zh: {
+    userGuide: '使用说明', guidePreferenceError: '说明显示偏好未能保存，下次进入网站时可能仍会弹出。',
     placePhotos: '地点图片', uploadPhoto: '上传图片', removePhoto: '移除图片', viewPhoto: '查看原图',
     photoHelp: '最多 6 张，每张不超过 5 MB，支持 JPG、PNG、WebP。图片上传至云端，获得链接的人可以查看；备份仅保存图片引用。',
     photoCountError: '每个地点最多 6 张图片，请减少选择数量。', photoTypeError: '请选择有效的 JPG、PNG 或 WebP 图片。', photoSizeError: '图片不能为空，每张不能超过 5 MB。',
@@ -37,6 +38,7 @@ export const copy = {
     busyNotice: '先完成或取消当前操作，再开始新的标注。', languageError: '语言已切换，但偏好未能保存。', total: '条标注', backup: '本地备份', searchBusy: '搜索中…', source: '来源', editWalkingNote: '编辑节点后将作为手绘路线保存，预计时间会移除。',
   },
   en: {
+    userGuide: 'User guide', guidePreferenceError: 'The guide preference could not be saved. It may appear again on your next visit.',
     placePhotos: 'Place photos', uploadPhoto: 'Upload photos', removePhoto: 'Remove photo', viewPhoto: 'View original',
     photoHelp: 'Up to 6 photos, 5 MB each. JPG, PNG and WebP supported. Photos are uploaded to the cloud and anyone with the link can view them; backups store references only.',
     photoCountError: 'A place can have up to 6 photos. Select fewer files.', photoTypeError: 'Choose a valid JPG, PNG or WebP image.', photoSizeError: 'Images must be non-empty and no larger than 5 MB each.',

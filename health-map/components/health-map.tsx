@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react';
-import { HeartPulse, MapPin, Route as RouteIcon, Search, LocateFixed, Plus, Minus, Layers, X, Pencil, Trash2, ArrowLeft, Undo2, Check, ExternalLink, Navigation, ShieldCheck, Globe2, ArrowDownToLine, ArrowUpFromLine, ChevronDown, ChevronUp } from 'lucide-react';
+import { HeartPulse, MapPin, Route as RouteIcon, Search, LocateFixed, Plus, Minus, Layers, X, Pencil, Trash2, ArrowLeft, Undo2, Check, ExternalLink, Navigation, ShieldCheck, Globe2, ArrowDownToLine, ArrowUpFromLine, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,6 +13,8 @@ import { CategoryIcon } from '@/components/category-icon';
 import { sharedServiceEnabled, type SharedBackup } from '@/lib/shared-backups';
 import { placeNavigationUrl } from '@/lib/navigation';
 import { PlacePhotoEditor, PlacePhotoGallery } from '@/components/place-photos';
+import { UserGuide } from '@/components/user-guide';
+import { GUIDE_HIDDEN_KEY } from '@/lib/user-guide';
 
 type Mode = { kind: 'browse' } | { kind: 'place'; record: Place } | { kind: 'draw'; points: Coordinate[] } | { kind: 'route'; record: Route; editable: boolean } | { kind: 'walking'; start?: Coordinate; end?: Coordinate; picking: 'start' | 'end'; pending: boolean; result?: WalkResult; error?: CopyKey };
 type Confirmation = { kind: 'import'; backup: Backup } | { kind: 'delete'; record: MapRecord };
@@ -35,6 +37,9 @@ export default function HealthMap() {
   const mergedSharedData = useMemo<Backup>(() => ({ ...EMPTY_DATA, records: sharedBackups.flatMap(value => value.backup.records.map(record => ({ ...record, id: `${value.summary.id}:${record.id}` }))) }), [sharedBackups]);
   const displayData = sharedView ? mergedSharedData : data;
   const [hydrated, setHydrated] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideHidden, setGuideHidden] = useState(false);
+  const guideButton = useRef<HTMLButtonElement>(null);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: 'browse' });
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -55,13 +60,13 @@ export default function HealthMap() {
   const fileInput = useRef<HTMLInputElement>(null);
   const controller = useRef<AMapController | undefined>(undefined);
   const searchSequence = useRef(0), walkingSequence = useRef(0);
-  const latest = useRef({ mode, data, language, status, storageBlocked });
-  latest.current = { mode, data, language, status, storageBlocked };
+  const latest = useRef({ mode, data, language, status, storageBlocked, guideOpen });
+  latest.current = { mode, data, language, status, storageBlocked, guideOpen };
   const t = (name: CopyKey) => copy[language][name];
   const visible = displayData.records.filter(r => filter === 'all' || r.category === filter);
   const selected = displayData.records.find(r => r.id === selectedId);
   const active = mode.kind !== 'browse';
-  const mapEnabled = status === 'ready' && hydrated && !storageBlocked && !sharedView && !uploadBackup;
+  const mapEnabled = status === 'ready' && hydrated && !storageBlocked && !sharedView && !uploadBackup && !guideOpen;
   const notify = (name: CopyKey, error = false) => setMessage({ key: name, error });
 
   useEffect(() => {
@@ -71,7 +76,9 @@ export default function HealthMap() {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setData(parseBackup(raw));
     } catch { setStorageBlocked(true); }
-    setHydrated(true);
+    let hidden = false;
+    try { hidden = localStorage.getItem(GUIDE_HIDDEN_KEY) === 'true'; } catch { /* A guide preference failure must not block the map. */ }
+    setGuideHidden(hidden); setGuideOpen(!hidden); setHydrated(true);
     if ((!key || !securityCode) && window.matchMedia?.('(max-width: 700px)').matches) setPanelOpen(false);
   }, []);
   useEffect(() => { document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'; }, [language]);
@@ -82,7 +89,7 @@ export default function HealthMap() {
   }, [message]);
   function onMapClick(p: Coordinate) {
     const current = latest.current.mode;
-    if (latest.current.storageBlocked) return;
+    if (latest.current.storageBlocked || latest.current.guideOpen) return;
     if (current.kind === 'place') setMode({ ...current, record: { ...current.record, position: p } });
     if (current.kind === 'draw') setMode({ ...current, points: [...current.points, p] });
     if (current.kind === 'route' && current.editable) setMode({ ...current, record: { ...current.record, points: [...current.record.points, p] } });
@@ -199,6 +206,20 @@ export default function HealthMap() {
     if (commit(next, confirmation.kind === 'import')) { walkingSequence.current++; setMode({ kind: 'browse' }); notify(confirmation.kind === 'import' ? 'imported' : 'removedOk'); setConfirmation(undefined); setSelectedId(undefined); setFilter('all'); setPreview(undefined); }
   }
   function switchLanguage() { const next = language === 'zh' ? 'en' : 'zh'; setLanguage(next); try { localStorage.setItem(LANGUAGE_KEY, next); } catch { notify('languageError', true); } }
+  function openGuide() {
+    if (!hydrated || confirmation || uploadBackup) return;
+    let hidden = false;
+    try { hidden = localStorage.getItem(GUIDE_HIDDEN_KEY) === 'true'; } catch { /* Manual help remains available without preference storage. */ }
+    setGuideHidden(hidden); setGuideOpen(true);
+  }
+  function closeGuide(hidden: boolean) {
+    try {
+      if (hidden) localStorage.setItem(GUIDE_HIDDEN_KEY, 'true');
+      else localStorage.removeItem(GUIDE_HIDDEN_KEY);
+      setGuideHidden(hidden);
+    } catch { notify('guidePreferenceError', true); }
+    setGuideOpen(false);
+  }
   function selectRecord(r: MapRecord) { setSelectedId(r.id); setPreview(undefined); controller.current?.focus(r.kind === 'place' ? [r.position] : r.points); }
   function switchSource(shared: boolean) {
     if (active || confirmation || uploadBackup) return;
@@ -297,7 +318,7 @@ export default function HealthMap() {
     <header className="app-header">
       <a href="/" className="brand" aria-label="Tongji Health Map"><span className="brand-mark"><HeartPulse /></span><span><b>TONGJI <span>HEALTH MAP</span></b><small>{language === 'zh' ? '同济大学 · 健康生活地图' : 'Tongji University · Health resources'}</small></span></a>
       <div className="header-meta"><span className="campus-label"><MapPin size={15} />{t('campus')}</span><span className="local-label"><ShieldCheck size={15} />{t(sharedView ? 'shared' : 'local')}</span></div>
-      <Button variant="ghost" className="language-toggle" onClick={switchLanguage} aria-label={language === 'zh' ? 'Switch to English' : '切换为中文'}><Globe2 size={17} />{language === 'zh' ? 'EN' : '中文'}</Button>
+      <div className="header-actions"><Button ref={guideButton} variant="ghost" className="guide-trigger" disabled={!hydrated || !!confirmation || !!uploadBackup} onClick={openGuide} aria-label={t('userGuide')} title={t('userGuide')}><BookOpen size={17} /><span>{t('userGuide')}</span></Button><Button variant="ghost" className="language-toggle" onClick={switchLanguage} aria-label={language === 'zh' ? 'Switch to English' : '切换为中文'}><Globe2 size={17} />{language === 'zh' ? 'EN' : '中文'}</Button></div>
     </header>
     <div className="workspace">
       <aside className={`sidebar ${panelOpen ? 'expanded' : 'collapsed'}`} aria-label={t('resources')}>
@@ -329,6 +350,7 @@ export default function HealthMap() {
       </section>
     </div>
     {message && <div className={`notification ${message.error ? 'error' : ''}`} role={message.error ? 'alert' : 'status'}><span>{t(message.key)}</span><Button size="icon-sm" variant="ghost" aria-label={t('close')} onClick={() => setMessage(undefined)}><X /></Button></div>}
+    {guideOpen && <UserGuide language={language} hidden={guideHidden} onClose={closeGuide} onSwitchLanguage={switchLanguage} onReturnFocus={() => guideButton.current?.focus()} />}
     {uploadBackup && <SharedUploadDialog backup={uploadBackup} language={language} onClose={() => setUploadBackup(undefined)} onUploaded={() => { setUploadBackup(undefined); setSharedRefresh(value => value + 1); notify('sharedUploaded'); }} />}
     <Dialog open={!!confirmation} onOpenChange={open => { if (!open) setConfirmation(undefined); }}><DialogContent className="confirm-dialog" showCloseButton={false}><DialogTitle>{t(confirmation?.kind === 'import' ? 'importTitle' : 'deleteTitle')}</DialogTitle><DialogDescription>{t(confirmation?.kind === 'import' ? 'importBody' : 'deleteBody')}</DialogDescription>{confirmation?.kind === 'import' ? <p className="import-count">{confirmation.backup.records.filter(r => r.kind === 'place').length} {t('places')} · {confirmation.backup.records.filter(r => r.kind === 'route').length} {t('routes')}</p> : confirmation && <p>{recordName(confirmation.record, language)}</p>}<div className="editor-actions"><Button variant="outline" onClick={() => setConfirmation(undefined)}>{t('cancel')}</Button><Button className={confirmation?.kind === 'delete' ? 'danger-solid' : ''} onClick={confirmAction}>{t(confirmation?.kind === 'import' ? 'replace' : 'remove')}</Button></div></DialogContent></Dialog>
   </main>;
