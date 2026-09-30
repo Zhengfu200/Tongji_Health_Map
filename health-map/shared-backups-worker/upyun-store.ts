@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { MAX_SHARED_BYTES, SHARED_PAGE_SIZE, SharedError, validateSummary, type SharedSummary, type SharedUpload } from '../lib/shared-backups';
 import { validateBackup } from '../lib/model';
+import { MAX_PHOTO_BYTES, PHOTO_TYPES, matchesPhotoType, type PhotoType } from '../lib/photo-model';
 
 type Fetcher = typeof fetch;
 type Row = { id: string; name: string; creator: string; created_at: string; places: number; routes: number; byte_size: number; sha256: string; status: 'pending' | 'ready' | 'deleted' };
@@ -40,7 +41,7 @@ export class UpyunStore {
   private async row(id: string) {
     return this.db().prepare(rowSql + ' WHERE id = ?').bind(id).first<Row>();
   }
-  private async callUpyun(method: 'GET' | 'HEAD' | 'PUT' | 'DELETE' | 'POST', path: string, body?: string) {
+  private async callUpyun(method: 'GET' | 'HEAD' | 'PUT' | 'DELETE' | 'POST', path: string, body?: string | Uint8Array<ArrayBuffer>, contentType = 'application/json; charset=utf-8') {
     if (!this.env.UPYUN_BUCKET || !this.env.UPYUN_OPERATOR || !this.env.UPYUN_PASSWORD) throw new SharedError('NOT_CONFIGURED', 503);
     const uri = '/' + this.env.UPYUN_BUCKET + '/' + path;
     const date = new Date().toUTCString();
@@ -50,7 +51,7 @@ export class UpyunStore {
     try {
       response = await this.fetcher('https://v0.api.upyun.com' + uri, {
         method,
-        headers: { Authorization: 'UPYUN ' + this.env.UPYUN_OPERATOR + ':' + signature, Date: date, ...(body ? { 'Content-Type': 'application/json; charset=utf-8' } : {}), ...(method === 'POST' ? { folder: 'true' } : {}) },
+        headers: { Authorization: 'UPYUN ' + this.env.UPYUN_OPERATOR + ':' + signature, Date: date, ...(body ? { 'Content-Type': contentType } : {}), ...(method === 'PUT' ? { 'x-upyun-auto-mkdir': 'true' } : {}), ...(method === 'POST' ? { folder: 'true' } : {}) },
         ...(body ? { body } : {}), redirect: 'manual', signal: AbortSignal.timeout(15000),
       });
     } catch { throw new SharedError('UNAVAILABLE', 503); }
@@ -61,6 +62,22 @@ export class UpyunStore {
   }
   private upyun(method: 'GET' | 'HEAD' | 'PUT' | 'DELETE', id: string, body?: string) {
     return this.callUpyun(method, pathFor(id), body);
+  }
+  async uploadPhoto(bytes: Uint8Array<ArrayBuffer>, contentType: PhotoType, name: string) {
+    if (!bytes.length || bytes.length > MAX_PHOTO_BYTES) throw new SharedError('PHOTO_TOO_LARGE', 413);
+    if (!matchesPhotoType(bytes, contentType)) throw new SharedError('PHOTO_TYPE');
+    const id = crypto.randomUUID() + '.' + PHOTO_TYPES[contentType];
+    const response = await this.callUpyun('PUT', 'photos/' + id, bytes, contentType);
+    if (!response.ok) throw new SharedError('UNAVAILABLE', 503);
+    return { id, name, contentType, byteSize: bytes.length };
+  }
+  async getPhoto(id: string) {
+    const response = await this.callUpyun('GET', 'photos/' + id);
+    if (response.status === 404) throw new SharedError('NOT_FOUND', 404);
+    const contentType = id.endsWith('.jpg') ? 'image/jpeg' : id.endsWith('.png') ? 'image/png' : 'image/webp';
+    return new Response(response.body, { headers: { 'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox" } });
   }
   private async exists(id: string) {
     const response = await this.upyun('HEAD', id);

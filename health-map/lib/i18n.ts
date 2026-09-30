@@ -1,6 +1,10 @@
 import type { Language } from './model';
 export const copy = {
   zh: {
+    placePhotos: '地点图片', uploadPhoto: '上传图片', removePhoto: '移除图片', viewPhoto: '查看原图',
+    photoHelp: '最多 6 张，每张不超过 5 MB，支持 JPG、PNG、WebP。图片上传至云端，获得链接的人可以查看；备份仅保存图片引用。',
+    photoCountError: '每个地点最多 6 张图片，请减少选择数量。', photoTypeError: '请选择有效的 JPG、PNG 或 WebP 图片。', photoSizeError: '图片不能为空，每张不能超过 5 MB。',
+    photoUploadError: '图片上传失败，请重新选择重试；已经上传的图片已保留。', photoUploading: '正在上传图片，请等上传完成后保存地点。', photosDisabled: '图片上传服务尚未启用，请联系网站维护者。',
     navigateToPlace: '导航到这里', navigationHelp: '通过高德地图步行导航。手机可唤起应用；电脑打开网页版后选择起点。',
     sharedSelectHelp: '勾选备份即可在地图上显示，支持同时选择多份。', showShared: '在地图上显示', selectedShared: '已显示备份', sharedSelectionDeleted: '已删除的备份已从地图移除，其余勾选的备份继续显示；个人标注保持不变。',
     shared: '共享备份', sharedAnnotations: '备份中的标注', uploadShared: '上传共享备份', backupName: '备份名称', creator: '创建者', publicNotice: '名称、创建者和全部标注将公开，任何人都可以查看和下载。创建者名称为自填信息。',
@@ -33,6 +37,10 @@ export const copy = {
     busyNotice: '先完成或取消当前操作，再开始新的标注。', languageError: '语言已切换，但偏好未能保存。', total: '条标注', backup: '本地备份', searchBusy: '搜索中…', source: '来源', editWalkingNote: '编辑节点后将作为手绘路线保存，预计时间会移除。',
   },
   en: {
+    placePhotos: 'Place photos', uploadPhoto: 'Upload photos', removePhoto: 'Remove photo', viewPhoto: 'View original',
+    photoHelp: 'Up to 6 photos, 5 MB each. JPG, PNG and WebP supported. Photos are uploaded to the cloud and anyone with the link can view them; backups store references only.',
+    photoCountError: 'A place can have up to 6 photos. Select fewer files.', photoTypeError: 'Choose a valid JPG, PNG or WebP image.', photoSizeError: 'Images must be non-empty and no larger than 5 MB each.',
+    photoUploadError: 'Upload failed. Select the file again to retry; completed uploads have been kept.', photoUploading: 'Uploading photos. Wait for completion before saving the place.', photosDisabled: 'Photo uploads are not enabled. Contact the site maintainer.',
     navigateToPlace: 'Navigate here', navigationHelp: 'Walking directions with AMap. Open the app on mobile, or choose a starting point on the desktop website.',
     sharedSelectHelp: 'Check backups to show their annotations together on the map.', showShared: 'Show on map', selectedShared: 'Backups shown', sharedSelectionDeleted: 'Deleted backups have been removed from the map. Other selected backups remain visible; your annotations are unchanged.',
     shared: 'Shared backups', sharedAnnotations: 'Backup annotations', uploadShared: 'Upload shared backup', backupName: 'Backup name', creator: 'Creator', publicNotice: 'The name, creator and all annotations will be public for anyone to view and download. Creator names are self-reported.',

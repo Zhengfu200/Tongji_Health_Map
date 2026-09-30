@@ -19,5 +19,8 @@
     "database_id": "f4e7b692-8f02-4b3e-b0e0-b29fd9d33658",
     "migrations_dir": "migrations"
   }],
-  "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }]
+  "ratelimits": [
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } },
+    { "name": "PHOTO_UPLOAD_LIMITER", "namespace_id": "1003", "simple": { "limit": 12, "period": 60 } }
+  ]
 }

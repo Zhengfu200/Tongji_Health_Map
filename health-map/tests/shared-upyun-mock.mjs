@@ -49,6 +49,6 @@ export function createUpyunMock() {
     if (!files.has(path)) return new Response('', { status: 404 });
     return new Response(method === 'HEAD' ? null : files.get(path), { status: 200 });
   }
-  const env = { BACKUPS_DB: db, UPYUN_BUCKET: 'test-bucket', UPYUN_OPERATOR: 'test-operator', UPYUN_PASSWORD: 'test-only-password', ADMIN_TOKEN: 'test-admin-token', ALLOWED_ORIGINS: 'http://localhost:5173', UPLOAD_LIMITER: { limit: async () => ({ success: true }) } };
+  const env = { BACKUPS_DB: db, UPYUN_BUCKET: 'test-bucket', UPYUN_OPERATOR: 'test-operator', UPYUN_PASSWORD: 'test-only-password', ADMIN_TOKEN: 'test-admin-token', ALLOWED_ORIGINS: 'http://localhost:5173', UPLOAD_LIMITER: { limit: async () => ({ success: true }) }, PHOTO_UPLOAD_LIMITER: { limit: async () => ({ success: true }) } };
   return { env, files, requests, fetcher, sqlite, failPut(count = 1) { failedPut = count; }, failGet(count = 1) { failedGet = count; }, withoutDirectory() { folderExists = false; } };
 }

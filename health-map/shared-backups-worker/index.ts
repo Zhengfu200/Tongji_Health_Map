@@ -1,7 +1,8 @@
 import { MAX_SHARED_BYTES, UUID_PATTERN, SharedError, validateUpload } from '../lib/shared-backups';
 import { UpyunStore } from './upyun-store';
+import { MAX_PHOTO_BYTES, PHOTO_TYPES, PHOTO_ID_PATTERN, type PhotoType } from '../lib/photo-model';
 
-async function boundedText(response: Response | Request, limit: number) {
+async function boundedBytes(response: Response | Request, limit: number) {
   if (Number(response.headers.get('content-length')) > limit) throw new SharedError('TOO_LARGE', 413);
   if (!response.body) throw new SharedError('INVALID_UPLOAD');
   const reader = response.body.getReader();
@@ -16,7 +17,7 @@ async function boundedText(response: Response | Request, limit: number) {
   } finally { reader.releaseLock(); }
   const bytes = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  return new TextDecoder().decode(bytes);
+  return bytes;
 }
 
 export async function handleRequest(request: Request, env: SharedBackupsEnv, store = new UpyunStore(env)): Promise<Response> {
@@ -32,6 +33,25 @@ export async function handleRequest(request: Request, env: SharedBackupsEnv, sto
       return new Response(null, { status: 204, headers });
     }
     const url = new URL(request.url);
+    if (url.pathname === '/photos' && request.method === 'POST') {
+      if (!origin) throw new SharedError('ORIGIN_REQUIRED', 403);
+      if (!(await env.PHOTO_UPLOAD_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') || 'local' })).success) throw new SharedError('RATE_LIMITED', 429, '60');
+      const contentType = request.headers.get('Content-Type') || '';
+      if (!Object.hasOwn(PHOTO_TYPES, contentType)) throw new SharedError('PHOTO_TYPE');
+      const name = url.searchParams.get('name')?.trim();
+      if (!name || name.length > 160) throw new SharedError('INVALID_UPLOAD');
+      const bytes = await boundedBytes(request, MAX_PHOTO_BYTES);
+      return Response.json({ photo: await store.uploadPhoto(bytes, contentType as PhotoType, name) }, { status: 201, headers });
+    }
+    const photo = url.pathname.match(/^\/photos\/([^/]+)$/);
+    if (photo && request.method === 'GET') {
+      if (!PHOTO_ID_PATTERN.test(photo[1])) throw new SharedError('NOT_FOUND', 404);
+      const response = await store.getPhoto(photo[1]);
+      for (const key of ['Access-Control-Allow-Origin', 'Vary']) {
+        const value = headers.get(key); if (value) response.headers.set(key, value);
+      }
+      return response;
+    }
     if (url.pathname === '/backups' && request.method === 'GET') {
       const cursor = url.searchParams.get('cursor') || undefined;
       if (cursor && !UUID_PATTERN.test(cursor)) throw new SharedError('INVALID_CURSOR');
@@ -45,7 +65,7 @@ export async function handleRequest(request: Request, env: SharedBackupsEnv, sto
       if (!(await env.UPLOAD_LIMITER.limit({ key: ip })).success) throw new SharedError('RATE_LIMITED', 429, '60');
       if (!request.headers.get('content-type')?.startsWith('application/json')) throw new SharedError('INVALID_UPLOAD');
       let parsed: unknown;
-      const text = await boundedText(request, MAX_SHARED_BYTES + 4096);
+      const text = new TextDecoder().decode(await boundedBytes(request, MAX_SHARED_BYTES + 4096));
       try { parsed = JSON.parse(text); } catch { throw new SharedError('INVALID_UPLOAD'); }
       const summary = await store.upload(validateUpload(parsed));
       return Response.json({ summary }, { status: 201, headers });

@@ -16,5 +16,8 @@
     "database_name": "tongji-backup-test-only",
     "migrations_dir": "../shared-backups-worker/migrations"
   }],
-  "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }]
+  "ratelimits": [
+    { "name": "UPLOAD_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    { "name": "PHOTO_UPLOAD_LIMITER", "namespace_id": "1004", "simple": { "limit": 60, "period": 60 } }
+  ]
 }

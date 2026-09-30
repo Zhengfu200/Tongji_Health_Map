@@ -1,3 +1,4 @@
+import { validatePhotos, type PlacePhoto } from './photo-model';
 export type Language = 'zh' | 'en';
 export type Coordinate = [number, number];
 export const CATEGORY_IDS = ['clinic', 'counseling', 'fitness', 'dining', 'rest', 'international'] as const;
@@ -13,6 +14,7 @@ export const CATEGORIES: Record<Category, { zh: string; en: string; color: strin
 export interface BaseRecord { id: string; nameZh: string; nameEn: string; description: string; updatedAt: string }
 export interface Place extends BaseRecord {
   kind: 'place'; category: Category; position: Coordinate; address: string; hours: string; contact: string;
+  photos?: PlacePhoto[];
 }
 export interface Route extends BaseRecord {
   kind: 'route'; category: 'relaxation'; points: Coordinate[]; source: 'manual' | 'walking'; distance: number; duration?: number;
@@ -63,7 +65,7 @@ export function validateBackup(input: unknown): Backup {
     ids.add(base.id);
     if (r.kind === 'place') {
       if (!CATEGORY_IDS.includes(r.category as Category) || !isCoordinate(r.position)) throw new Error('INVALID_BACKUP');
-      return { ...base, kind: 'place', category: r.category as Category, position: [...r.position], address: field(r, 'address'), hours: field(r, 'hours'), contact: field(r, 'contact') };
+      return { ...base, kind: 'place', category: r.category as Category, position: [...r.position], address: field(r, 'address'), hours: field(r, 'hours'), contact: field(r, 'contact'), ...(r.photos !== undefined ? { photos: validatePhotos(r.photos) } : {}) };
     }
     if (r.kind !== 'route' || r.category !== 'relaxation' || !['manual', 'walking'].includes(r.source as string) || !Array.isArray(r.points) || r.points.length > 50000 || !validPath(r.points as Coordinate[])) throw new Error('INVALID_BACKUP');
     if (typeof r.distance !== 'number' || !Number.isFinite(r.distance) || r.distance <= 0 || (r.duration !== undefined && (typeof r.duration !== 'number' || !Number.isFinite(r.duration) || r.duration < 0))) throw new Error('INVALID_BACKUP');

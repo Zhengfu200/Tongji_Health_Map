@@ -22,6 +22,43 @@ const saved=()=>JSON.parse(window.localStorage.getItem(STORAGE_KEY)).records;
 async function addPlace(name='测试地点'){
   fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true}));clickMap([121.5016,31.2848]);fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:name}});fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
 }
+test('place photo upload blocks save, keeps latest edits, persists on refresh and supports removal',async()=>{
+  await mount(); fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true})); clickMap([121.5016,31.2848]);
+  fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'图片地点'}});
+  let finish;
+  globalThis.fetch=async()=>new Promise(resolve=>{finish=resolve;});
+  const input=screen.getByLabelText('上传图片',{selector:'input'});
+  const file=new window.File(['png'],'campus.png',{type:'image/png'});
+  fireEvent.change(input,{target:{files:[file]}});
+  assert.equal(screen.getByRole('button',{name:'保存',exact:true}).disabled,true);
+  fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'上传时修改的名称'}});
+  const photo={id:crypto.randomUUID()+'.png',name:'campus.png',contentType:'image/png',byteSize:3};
+  await act(async()=>finish(Response.json({photo},{status:201})));
+  await waitFor(()=>assert.equal(screen.getByRole('button',{name:'保存',exact:true}).disabled,false));
+  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
+  assert.equal(saved()[0].nameZh,'上传时修改的名称'); assert.deepEqual(saved()[0].photos,[photo]);
+  assert.ok(screen.getByRole('link',{name:'查看原图: campus.png'}));
+  cleanup(); await mount(); fireEvent.click(screen.getByRole('button',{name:/上传时修改的名称/}));
+  assert.ok(screen.getByRole('link',{name:'查看原图: campus.png'}));
+  fireEvent.click(screen.getByRole('button',{name:'编辑',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'移除图片: campus.png'}));
+  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true})); assert.deepEqual(saved()[0].photos,[]);
+});
+test('failed photo upload preserves the place draft and can be retried',async()=>{
+  await mount(); fireEvent.click(screen.getByRole('button',{name:'标注地点',exact:true})); clickMap([121.5016,31.2848]);
+  fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'失败保留'}});
+  const input=screen.getByLabelText('上传图片',{selector:'input'});
+  globalThis.fetch=async()=>Response.json({error:{code:'UNAVAILABLE'}},{status:503});
+  fireEvent.change(input,{target:{files:[new window.File(['png'],'campus.png',{type:'image/png'})]}});
+  await screen.findByRole('alert');
+  assert.equal(screen.getByLabelText('中文名称 *').value,'失败保留');
+  assert.equal(screen.getByRole('button',{name:'保存',exact:true}).disabled,false);
+  const photo={id:crypto.randomUUID()+'.png',name:'campus.png',contentType:'image/png',byteSize:3};
+  globalThis.fetch=async()=>Response.json({photo},{status:201});
+  fireEvent.change(input,{target:{files:[new window.File(['png'],'campus.png',{type:'image/png'})]}});
+  await screen.findByRole('button',{name:'移除图片: campus.png'});
+  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true})); assert.deepEqual(saved()[0].photos,[photo]);
+});
 test('place creation, cancel restores position, drag changes saved position, deletion',async()=>{
   await mount();await addPlace();assert.equal(saved().length,1);
   const navigation=screen.getByRole('link',{name:'导航到这里'});

@@ -12,6 +12,7 @@ import { SharedBackupPanel, SharedUploadDialog } from '@/components/shared-backu
 import { CategoryIcon } from '@/components/category-icon';
 import { sharedServiceEnabled, type SharedBackup } from '@/lib/shared-backups';
 import { placeNavigationUrl } from '@/lib/navigation';
+import { PlacePhotoEditor, PlacePhotoGallery } from '@/components/place-photos';
 
 type Mode = { kind: 'browse' } | { kind: 'place'; record: Place } | { kind: 'draw'; points: Coordinate[] } | { kind: 'route'; record: Route; editable: boolean } | { kind: 'walking'; start?: Coordinate; end?: Coordinate; picking: 'start' | 'end'; pending: boolean; result?: WalkResult; error?: CopyKey };
 type Confirmation = { kind: 'import'; backup: Backup } | { kind: 'delete'; record: MapRecord };
@@ -36,6 +37,7 @@ export default function HealthMap() {
   const [hydrated, setHydrated] = useState(false);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: 'browse' });
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [filter, setFilter] = useState<Category | 'all' | 'relaxation'>('all');
   const [selectedId, setSelectedId] = useState<string>();
   const [status, setStatus] = useState<Status>(key && securityCode ? 'loading' : 'missing');
@@ -141,7 +143,7 @@ export default function HealthMap() {
     try { const clean = saveBackup(localStorage, next); setData(clean); setStorageBlocked(false); return true; }
     catch { notify('storageError', true); return false; }
   }
-  function cancel() { walkingSequence.current++; setMode({ kind: 'browse' }); }
+  function cancel() { if (photoBusy) return; walkingSequence.current++; setMode({ kind: 'browse' }); }
   function preparePlace(position?: Coordinate, poi?: SearchResult) {
     if (!mapEnabled || active) return;
     setPreview(undefined); setSelectedId(undefined); setPanelOpen(true);
@@ -151,6 +153,7 @@ export default function HealthMap() {
     return { id: crypto.randomUUID(), kind: 'route', category: 'relaxation', nameZh: '校园散步路线', nameEn: '', description: '', points: points.map(p => [...p]), source: walking ? 'walking' : 'manual', distance: walking?.distance || pathDistance(points), ...(walking ? { duration: walking.duration } : {}), updatedAt: new Date().toISOString() };
   }
   function saveRecord(record: MapRecord) {
+    if (photoBusy) return;
     if (!record.nameZh.trim() || (record.kind === 'place' ? !isCoordinate(record.position) : !validPath(record.points))) { notify('invalid', true); return; }
     const clean = { ...record, nameZh: record.nameZh.trim(), nameEn: record.nameEn.trim(), updatedAt: new Date().toISOString(), ...(record.kind === 'route' && record.source === 'manual' ? { distance: pathDistance(record.points), duration: undefined } : {}) };
     if (commit({ ...data, records: [...data.records.filter(r => r.id !== clean.id), clean] })) { setMode({ kind: 'browse' }); setSelectedId(clean.id); setFilter('all'); notify('savedOk'); }
@@ -230,7 +233,7 @@ export default function HealthMap() {
       else setMode({ ...mode, record: { ...mode.record, ...changes } as Route });
     };
     return <form className="editor" onSubmit={e => { e.preventDefault(); saveRecord(draft); }}>
-      <div className="section-heading"><h2>{draft.kind === 'place' ? t('addPlace') : t('routeName')}</h2><Button type="button" variant="ghost" size="icon" aria-label={t('cancel')} onClick={cancel}><X /></Button></div>
+      <div className="section-heading"><h2>{draft.kind === 'place' ? t('addPlace') : t('routeName')}</h2><Button type="button" variant="ghost" size="icon" aria-label={t('cancel')} disabled={photoBusy} onClick={cancel}><X /></Button></div>
       <p className="instruction">{draft.kind === 'place' ? (isCoordinate(draft.position) ? t('relocation') : t('pickPlace')) : (mode.kind === 'route' && mode.editable ? t('nodeEdit') : t('planned'))}</p>
       <Field title={`${t('titleZh')} *`}><Input required maxLength={160} value={draft.nameZh} onChange={e => update({ nameZh: e.target.value })} autoFocus /></Field>
       <Field title={t('titleEn')}><Input maxLength={160} value={draft.nameEn} onChange={e => update({ nameEn: e.target.value })} /></Field>
@@ -240,6 +243,7 @@ export default function HealthMap() {
         <Field title={t('address')}><Input maxLength={500} value={draft.address} onChange={e => update({ address: e.target.value })} /></Field>
         <Field title={t('hours')}><Input maxLength={500} value={draft.hours} onChange={e => update({ hours: e.target.value })} /></Field>
         <Field title={t('contact')}><Input maxLength={500} value={draft.contact} onChange={e => update({ contact: e.target.value })} /></Field>
+        <PlacePhotoEditor key={draft.id} photos={draft.photos || []} language={language} onBusyChange={setPhotoBusy} onChange={photos => setMode(current => current.kind === 'place' && current.record.id === draft.id ? { ...current, record: { ...current.record, photos } } : current)} />
       </> : <>
         <div className="route-stats"><span>{t('routeLength')}<b>{distance(draft.source === 'walking' ? draft.distance : pathDistance(draft.points))}</b></span><span>{t('vertices')}<b>{draft.points.length}</b></span></div>
         {draft.source === 'walking' && draft.duration !== undefined && <p>{t('estimatedTime')} · {Math.ceil(draft.duration / 60)} {t('minutes')}</p>}
@@ -247,7 +251,7 @@ export default function HealthMap() {
         {mode.kind === 'route' && mode.editable && <details className="vertex-list"><summary>{t('vertices')} ({draft.points.length})</summary>{draft.points.map((p,i) => <div key={i}><code>{i+1}. {positionText(p)}</code><Button type="button" size="icon-sm" variant="ghost" aria-label={`${t('removeNode')} ${i+1}`} onClick={() => update({ points: draft.points.filter((_,j) => j !== i) })}><X /></Button></div>)}</details>}
       </>}
       <Field title={t('description')}><Textarea maxLength={5000} rows={3} value={draft.description} onChange={e => update({ description: e.target.value })} /></Field>
-      <div className="editor-actions"><Button type="button" variant="outline" onClick={cancel}>{t('cancel')}</Button><Button type="submit" disabled={!mapEnabled || !draft.nameZh.trim() || (draft.kind === 'place' ? !isCoordinate(draft.position) : !validPath(draft.points))}><Check />{t('save')}</Button></div>
+      <div className="editor-actions"><Button type="button" variant="outline" disabled={photoBusy} onClick={cancel}>{t('cancel')}</Button><Button type="submit" disabled={photoBusy || !mapEnabled || !draft.nameZh.trim() || (draft.kind === 'place' ? !isCoordinate(draft.position) : !validPath(draft.points))}><Check />{t('save')}</Button></div>
     </form>;
   }
   function renderWalking() {
@@ -283,6 +287,7 @@ export default function HealthMap() {
       <h2>{recordName(selected, language)}</h2>
       {language === 'zh' && selected.nameEn && <p className="subtle">{selected.nameEn}</p>}
       <p className="description">{selected.description || t('noDescription')}</p>
+      {selected.kind === 'place' && <PlacePhotoGallery photos={selected.photos || []} language={language} />}
       {selected.kind === 'place' ? <dl className="detail-fields">{([[t('address'), selected.address], [t('hours'), selected.hours], [t('contact'), selected.contact], [t('position'), positionText(selected.position)]]).filter(([,v]) => v).map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <><div className="route-stats"><span>{t('routeLength')}<b>{distance(selected.distance)}</b></span>{selected.duration !== undefined && <span>{t('estimatedTime')}<b>{Math.ceil(selected.duration/60)} {t('minutes')}</b></span>}</div><p className="subtle">{t('source')}: {t(selected.source === 'manual' ? 'manual' : 'walking')}</p><p className="subtle">{t('distanceNotice')}</p></>}
       {selected.kind === 'place' && <div className="place-navigation"><Button asChild className="full-width"><a href={placeNavigationUrl(selected, language)} target="_blank" rel="noopener noreferrer"><Navigation />{t('navigateToPlace')}</a></Button><p className="subtle">{t('navigationHelp')}</p></div>}
       {!sharedView && <div className="editor-actions"><Button variant="outline" disabled={!mapEnabled} onClick={() => editRecord(selected)}><Pencil />{t('edit')}</Button><Button variant="outline" className="danger-button" disabled={storageBlocked} onClick={() => setConfirmation({ kind: 'delete', record: selected })}><Trash2 />{t('remove')}</Button></div>}

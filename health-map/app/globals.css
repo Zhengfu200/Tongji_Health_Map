@@ -192,3 +192,13 @@ select:focus-visible { outline:3px solid #bad7f2; border-color:var(--primary); }
 .shared-banner b { font-size:16px; }.shared-banner span { font-size:14px; }.shared-banner small { font-size:12px; color:#617b98; }
 .sidebar-footer .full-width { margin-top:6px; }
 @media (max-width:700px) { .source-tabs { margin:0 18px 4px; }.shared-list { padding:12px 18px; }.shared-banner { margin:12px 18px; } }
+/* Place photos share the editor and detail panel width. */
+.place-photos { margin: 16px 0; }
+.place-photos h3 { font-size: 14px; margin: 0 0 8px; }
+.place-photos .subtle { font-size: 12px; line-height: 1.6; }
+.photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.photo-card { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid #dce7e8; border-radius: 10px; background: #f2f7f7; }
+.photo-card img { width: 100%; height: 100%; object-fit: cover; }
+.photo-card .photo-remove { position: absolute; top: 5px; right: 5px; background: white; }
+.photo-unavailable { padding: 12px; font-size: 12px; overflow-wrap: anywhere; color: #60747b; }
+.photo-error { font-size: 12px; line-height: 1.6; color: #b43246; }
