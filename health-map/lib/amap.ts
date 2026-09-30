@@ -111,7 +111,9 @@ export class AMapController {
         const content = document.createElement('div');
         content.className = `map-pin${active ? ' active' : ''}`;
         content.style.setProperty('--pin-color', CATEGORIES[r.category].color);
-        const dot = document.createElement('span'); dot.textContent = CATEGORIES[r.category].symbol;
+        const dot = document.createElement('span');
+        if (r.category === 'clinic') dot.className = 'pin-plus';
+        else dot.textContent = CATEGORIES[r.category].symbol;
         const label = document.createElement('b'); label.textContent = recordName(r, lang);
         content.appendChild(dot); content.appendChild(label);
         overlay = new this.sdk.Marker({ position: r.position, content, anchor: 'bottom-center', zIndex: active ? 150 : 100, title: recordName(r, lang), bubble: false });
@@ -152,8 +154,8 @@ export class AMapController {
     }
     const markerPoints = draft.endpointsOnly && points.length > 2 ? [points[0], points[points.length-1]] : points;
     markerPoints.forEach((p, index) => {
-      const content = document.createElement('div'); content.className = 'draft-pin';
-      content.textContent = draft.kind === 'place' ? '+' : String(index + 1);
+      const content = document.createElement('div'); content.className = `draft-pin${draft.kind === 'place' ? ' pin-plus' : ''}`;
+      if (draft.kind !== 'place') content.textContent = String(index + 1);
       const marker = new this.sdk.Marker({ position: p, content, anchor: 'center', zIndex: 170, draggable: draft.kind === 'place', bubble: false });
       if (draft.kind === 'place') marker.on('dragend', (e: any) => { const next = coordinate(e.lnglat); if (next) this.callbacks.placeMove(next); });
       this.draftObjects.push(marker);

@@ -142,10 +142,14 @@ select:focus-visible { outline:3px solid #bad7f2; border-color:var(--primary); }
 .confirm-dialog [data-slot="dialog-title"] { font-size:20px; }
 .confirm-dialog [data-slot="dialog-description"] { line-height:1.8; }
 .map-pin { display:flex; align-items:center; gap:6px; background:white; border:1px solid #cdd9e6; box-shadow:0 2px 9px #18385f26; border-radius:18px; padding:4px 10px 4px 4px; white-space:nowrap; color:#254461; font-size:12px; }
-.map-pin>span { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--pin-color); color:white; font-size:19px; }
+.map-pin>span { display:grid; place-items:center; flex:none; width:26px; height:26px; border-radius:50%; background:var(--pin-color); color:white; font-size:19px; }
 .map-pin b { font-weight:600; }
 .map-pin.active { border:2px solid #0753aa; }
 .draft-pin { display:grid; place-items:center; width:28px; height:28px; color:white; background:#0753aa; border:3px solid white; border-radius:50%; box-shadow:0 2px 8px #214c6c60; font-size:13px; font-weight:700; }
+.pin-plus { position:relative; }
+.pin-plus::before,.pin-plus::after { content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:currentColor; border-radius:2px; }
+.pin-plus::before { width:12px; height:2px; }
+.pin-plus::after { width:2px; height:12px; }
 @media (max-width:1250px) { .map-context { top:auto; bottom:25px; left:20px; right:auto; } }
 @media (max-width:950px) { .sidebar { width:320px; } .app-header { padding:0 20px; } .local-label { display:none!important; } .map-toolbar { left:16px; right:60px; gap:6px; } .map-toolbar [data-slot="button"] { padding-inline:10px; font-size:13px; } .map-unavailable { padding:100px 24px 80px; } .setup-card { padding:25px; } .setup-card h2 { font-size:23px; } }
 @media (max-width:700px) {
