@@ -2,13 +2,13 @@ export type Language = 'zh' | 'en';
 export type Coordinate = [number, number];
 export const CATEGORY_IDS = ['clinic', 'counseling', 'fitness', 'dining', 'rest', 'international'] as const;
 export type Category = typeof CATEGORY_IDS[number];
-export const CATEGORIES: Record<Category, { zh: string; en: string; color: string; symbol: string }> = {
-  clinic: { zh: '校医院', en: 'Campus clinic', color: '#da5468', symbol: '+' },
-  counseling: { zh: '心理咨询', en: 'Counseling', color: '#8261bb', symbol: '♡' },
-  fitness: { zh: '运动健身', en: 'Sports & fitness', color: '#dd852d', symbol: '↗' },
-  dining: { zh: '健康餐饮', en: 'Healthy dining', color: '#36916d', symbol: '♧' },
-  rest: { zh: '安静休息区', en: 'Quiet spaces', color: '#3a8caa', symbol: '☾' },
-  international: { zh: '国际学生服务', en: 'International services', color: '#497ac6', symbol: '◎' },
+export const CATEGORIES: Record<Category, { zh: string; en: string; color: string }> = {
+  clinic: { zh: '校医院', en: 'Campus clinic', color: '#da5468' },
+  counseling: { zh: '心理咨询', en: 'Counseling', color: '#8261bb' },
+  fitness: { zh: '运动健身', en: 'Sports & fitness', color: '#dd852d' },
+  dining: { zh: '健康餐饮', en: 'Healthy dining', color: '#36916d' },
+  rest: { zh: '安静休息区', en: 'Quiet spaces', color: '#3a8caa' },
+  international: { zh: '国际学生服务', en: 'International services', color: '#497ac6' },
 };
 export interface BaseRecord { id: string; nameZh: string; nameEn: string; description: string; updatedAt: string }
 export interface Place extends BaseRecord {

@@ -1,4 +1,5 @@
 import { CAMPUS_CENTER, CATEGORIES, isCoordinate, validPath, recordName, type Coordinate, type Language, type MapRecord } from './model.ts';
+import { createCategoryIcon } from './category-icons.ts';
 
 // The dynamically loaded SDK is contained in this adapter; app state never stores SDK objects.
 type SDK = Record<string, any>;
@@ -112,8 +113,7 @@ export class AMapController {
         content.className = `map-pin${active ? ' active' : ''}`;
         content.style.setProperty('--pin-color', CATEGORIES[r.category].color);
         const dot = document.createElement('span');
-        if (r.category === 'clinic') dot.className = 'pin-plus';
-        else dot.textContent = CATEGORIES[r.category].symbol;
+        dot.appendChild(createCategoryIcon(r.category));
         const label = document.createElement('b'); label.textContent = recordName(r, lang);
         content.appendChild(dot); content.appendChild(label);
         overlay = new this.sdk.Marker({ position: r.position, content, anchor: 'bottom-center', zIndex: active ? 150 : 100, title: recordName(r, lang), bubble: false });
