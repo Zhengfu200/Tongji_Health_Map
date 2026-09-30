@@ -17,9 +17,12 @@
     "shared:dev": "node node_modules/wrangler/bin/wrangler.js dev --config shared-backups-worker/wrangler.jsonc --port 8787 --compatibility-date 2026-05-22",
     "shared:login": "node node_modules/wrangler/bin/wrangler.js login",
     "shared:types": "node node_modules/wrangler/bin/wrangler.js types shared-backups-worker/worker-configuration.d.ts --config shared-backups-worker/wrangler.jsonc --env-interface SharedBackupsEnv --include-runtime false",
+    "shared:db:local": "node node_modules/wrangler/bin/wrangler.js d1 migrations apply tongji-shared-backups --config shared-backups-worker/wrangler.jsonc --local",
+    "shared:db:remote": "node scripts/run-shared-wrangler.mjs d1 migrations apply tongji-shared-backups --config shared-backups-worker/wrangler.jsonc --remote",
     "shared:deploy": "node scripts/run-shared-wrangler.mjs deploy --config shared-backups-worker/wrangler.jsonc",
     "shared:secret": "node scripts/configure-shared-secret.mjs",
     "shared:dry-run": "node scripts/run-shared-wrangler.mjs deploy --config shared-backups-worker/wrangler.jsonc --dry-run",
+    "test:shared:db": "node node_modules/wrangler/bin/wrangler.js d1 migrations apply tongji-backup-test-only --config tests/shared-preview.wrangler.jsonc --local",
     "test:shared:preview": "node node_modules/wrangler/bin/wrangler.js dev --config tests/shared-preview.wrangler.jsonc --port 8788"
   },
   "dependencies": {

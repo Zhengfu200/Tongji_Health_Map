@@ -4,6 +4,17 @@
   "main": "shared-preview-worker.mjs",
   "compatibility_date": "2026-05-22",
   "compatibility_flags": ["nodejs_compat"],
-  "vars": { "ALLOWED_ORIGINS": "http://localhost:5173" },
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173",
+    "UPYUN_BUCKET": "test-bucket",
+    "UPYUN_OPERATOR": "test-operator",
+    "UPYUN_PASSWORD": "test-only-password",
+    "ADMIN_TOKEN": "test-only-admin-token"
+  },
+  "d1_databases": [{
+    "binding": "BACKUPS_DB",
+    "database_name": "tongji-backup-test-only",
+    "migrations_dir": "../shared-backups-worker/migrations"
+  }],
   "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }]
 }

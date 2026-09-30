@@ -7,11 +7,17 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "observability": { "enabled": true },
+  "secrets": { "required": ["UPYUN_PASSWORD", "ADMIN_TOKEN"] },
   "vars": {
-    "GITHUB_OWNER": "Zhengfu200",
-    "GITHUB_REPO": "Tongji_Health_Map_Backups",
-    "GITHUB_BRANCH": "main",
+    "UPYUN_BUCKET": "tongji-health-map",
+    "UPYUN_OPERATOR": "zhengfu202",
     "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,https://tongji-health-map-self.vercel.app,https://tongji-health-map.pages.dev"
   },
+  "d1_databases": [{
+    "binding": "BACKUPS_DB",
+    "database_name": "tongji-shared-backups",
+    "database_id": "f4e7b692-8f02-4b3e-b0e0-b29fd9d33658",
+    "migrations_dir": "migrations"
+  }],
   "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }]
 }

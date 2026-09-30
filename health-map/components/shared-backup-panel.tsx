@@ -9,7 +9,7 @@ import { getSharedBackup, listSharedBackups, uploadSharedBackup, sharedServiceEn
 
 function errorKey(error: unknown, fallback: CopyKey): CopyKey {
   if (!(error instanceof SharedError)) return fallback;
-  const keys: Record<string, CopyKey> = { TOO_LARGE: 'sharedTooLarge', RATE_LIMITED: 'sharedRateLimit', GITHUB_AUTH: 'sharedAuthError', NOT_CONFIGURED: 'sharedDisabled', NOT_FOUND: 'sharedNotFound', INVALID_UPLOAD: 'sharedInvalid', INVALID_BACKUP: 'sharedInvalid', EMPTY_BACKUP: 'sharedInvalid' };
+  const keys: Record<string, CopyKey> = { TOO_LARGE: 'sharedTooLarge', RATE_LIMITED: 'sharedRateLimit', UPYUN_AUTH: 'sharedAuthError', NOT_CONFIGURED: 'sharedDisabled', NOT_FOUND: 'sharedNotFound', INVALID_UPLOAD: 'sharedInvalid', INVALID_BACKUP: 'sharedInvalid', EMPTY_BACKUP: 'sharedInvalid' };
   return keys[error.code] || fallback;
 }
 export function SharedBackupPanel({ language, refresh, onLoaded, onRemoved }: { language: Language; refresh: number; onLoaded: (value: SharedBackup) => void; onRemoved: (id: string, deleted?: boolean) => void }) {

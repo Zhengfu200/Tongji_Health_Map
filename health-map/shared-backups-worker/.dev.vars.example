@@ -1,2 +1,2 @@
-# Use a fine-grained PAT scoped ONLY to Tongji_Health_Map_Backups, Contents: read/write.
-GITHUB_TOKEN=replace-with-repository-scoped-token
+UPYUN_PASSWORD=replace-with-operator-password
+ADMIN_TOKEN=replace-with-a-long-random-token

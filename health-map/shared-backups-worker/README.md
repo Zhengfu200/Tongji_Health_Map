@@ -1,70 +1,55 @@
-# GitHub 共享备份接口
+# 又拍云共享备份接口
 
-前端通过 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL` 调用独立 Worker。本接口不使用 D1、R2、KV 或付费套餐。仓库为 [Zhengfu200/Tongji_Health_Map_Backups](https://github.com/Zhengfu200/Tongji_Health_Map_Backups)，初始化 `main` 分支和 `index.json`，内容为 `{"version":1,"items":[]}`。
+网站继续通过 NEXT_PUBLIC_SHARED_BACKUPS_API_URL 调用 tongji-health-map-backups Worker。Worker 用 D1 查询共享列表，用又拍云云存储保存 backups/<UUID>.json。浏览器不直接请求又拍云，无需为这一阶段准备已备案域名或配置 CDN 跨域。旧 GitHub 仓库保留作历史归档；新服务从空列表开始，不迁移旧备份。
 
-生产前端：[tongji-health-map.pages.dev](https://tongji-health-map.pages.dev/)。共享接口为 `https://tongji-health-map-backups.lgy0822.workers.dev`，已配置 GitHub Secret，Pages Production 连接此地址。本地隔离验收连接模拟接口 `http://localhost:8788`；线上构建使用 Pages Production 中配置的 HTTPS 接口。
+## 又拍云准备
 
-## 本地真实仓库测试
+1. 在[又拍云](https://www.upyun.com/)注册并完成实名认证。控制台选择「云产品 → 云存储 → 创建服务」，存储类型选「标准」。当前服务名为 tongji-health-map，已填写到 wrangler.jsonc 的 UPYUN_BUCKET。
+2. 创建或授权一个仅用于此服务的操作员，允许读取、上传和删除文件。把操作员名填到 wrangler.jsonc 的 UPYUN_OPERATOR，保存操作员密码供下一步设置 Secret。
+3. 将 .dev.vars.example 复制为被 Git 忽略的 shared-backups-worker/.dev.vars，填入 UPYUN_PASSWORD。另生成至少 32 字符的随机 ADMIN_TOKEN，用于管理删除；两项都不能提交到 Git。不要使用又拍云的测试域名作为正式入口，本服务也不需要用到它。
 
-从 `health-map` 目录执行：
+又拍云 REST API 使用 https://v0.api.upyun.com、HTTPS 和操作员签名。首次上传若 backups 目录不存在，Worker 会先创建目录再重试。密码只保存在 Worker Secret 与本地忽略文件中，网页永远不获取它。
 
-1. 将 `.dev.vars.example` 复制为 `.dev.vars`（已有文件不要覆盖），设置 `GITHUB_TOKEN`。在 GitHub 的 Fine-grained tokens 页面只选备份仓库，Repository permissions → Contents → Read and write。不要使用 GitHub CLI 的账号级 OAuth 令牌。
-2. 在 `.env.local` 添加 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL=http://localhost:8787`。
-3. `npm.cmd run shared:dev` 启动真实接口（本地日期兼容当前安装的运行时，生产仍使用配置中的日期）；重新启动 `npm.cmd run dev`。
-4. 上传后检查公开仓库及另一个浏览器中的共享列表。本地上传也会写入公共仓库。
+## D1 与部署
 
-未配置前端地址时显示服务未启用；配置了地址但后端缺少有效令牌时显示配置或凭据错误。失败保留个人数据、表单和重试 ID。
+Cloudflare 账号已创建亚太区域 D1 数据库 tongji-shared-backups，数据库 ID 已写入 wrangler.jsonc，初始迁移已在远端执行。若换 Cloudflare 账号，需要创建同名 D1、替换数据库 ID，再运行远端迁移。
 
-## 发布 Worker
+在 health-map 目录执行：
 
-```powershell
-npm.cmd run shared:login
-# 编辑 wrangler.jsonc 的 ALLOWED_ORIGINS，加入实际 EdgeOne 域名（仅来源，不带路径）
-npm.cmd run shared:types
-npm.cmd run shared:deploy
-npm.cmd run shared:secret
-```
+    npm.cmd run shared:db:local
+    npm.cmd run shared:types
+    npm.cmd test
+    npm.cmd run shared:dry-run
+    npm.cmd run shared:secret
+    npm.cmd run shared:deploy
 
-`shared:secret` 从忽略的 `.dev.vars` 读取 fine-grained token，经标准输入设置 Workers Secret，不打印令牌。Cloudflare 登录需要网站所有者完成；多账号时先在配置中设置 `account_id`。保留 Workers Free 套餐，不自动升级。也可在忽略的 `.env.shared-deploy` 中设置 `CLOUDFLARE_API_TOKEN`；部署脚本优先使用该值。令牌必须拥有创建及部署 Worker 的权限，仅能认证账号的令牌不足以发布。
+shared:secret 从忽略的 .dev.vars 读取 UPYUN_PASSWORD 和 ADMIN_TOKEN，通过标准输入设置 Worker Secret，不打印值。shared:deploy 发布至现有 https://tongji-health-map-backups.lgy0822.workers.dev。生产 Pages 已配置这个 API 地址，API 路径和返回 JSON 未改变；前端文案更新需通过原有 Pages 构建发布。不要在又拍云服务和 Secret 未准备好时发布新 Worker。
 
-首次创建需 Workers 产品级 `Admin`；已有 Worker 的部署及 Secret 管理可缩小为该 Worker 的 `Editor`。参见 [Cloudflare Workers 权限说明](https://developers.cloudflare.com/workers/authorization/workers/)。
+旧 Worker 的 GITHUB_TOKEN Secret 已在切换后移除。若旧 GitHub 令牌只供备份仓库使用，请在 GitHub 账户设置中撤销；仓库本身继续保留。当前网络无法访问 workers.dev，生产浏览器验收和国内加载时间对比仍待在可访问网络完成。
 
-将发布返回的 HTTPS 地址配置为本地、Vercel Production 和静态导出构建时的 `NEXT_PUBLIC_SHARED_BACKUPS_API_URL`，再重新构建前端。不要把 localhost 地址放进线上构建。EdgeOne 需要重新生成上传包；Vercel 需要重新部署。跨域白名单同时适用于列表和上传。
+本地真实又拍云联调：执行 npm.cmd run shared:db:local，配置 .dev.vars，再启动 npm.cmd run shared:dev；把前端本地环境变量 NEXT_PUBLIC_SHARED_BACKUPS_API_URL 设为 http://localhost:8787 并重启前端。本地真实上传会写入又拍云服务。
 
-先用两个浏览器完成上传和读取，再在 Cloudflare 的 Worker 指标中检查实际 CPU 时间、请求量及异常；免费套餐有每次 CPU 限制，1 MB 上限不是对所有大小都能在免费 CPU 额度内完成的承诺。GitHub 的 API 也有限流，界面会提示稍后重试。HTTP 上传按 IP 每分钟 3 次进行限流；该限制按 Cloudflare 节点执行，并非全站精确配额。
+## 接口与一致性
 
-## 数据与接口
+- POST /backups：上传已保存、非空的 v1 GCJ-02 备份；规范化 JSON 不超过 1 MB。D1 先插入不可见的 pending 行；又拍云 PUT 成功后改为 ready。失败时前端保留同一 UUID，可用相同内容重试；同一 UUID 的不同内容返回冲突。
+- GET /backups?cursor=<last-id>&selectedId=<id>：D1 查询已完成的备份，按创建时间及 ID 倒序，每页 20 项；游标即使已删除仍可继续翻页。传入 selectedId 时额外向又拍云确认文件存在；确认缺失后标记删除。D1 或又拍云故障返回错误，不把故障解释为删除。
+- GET /backups/<id>：查询 D1 元数据，然后从又拍云读取并校验 JSON。文件确实不存在时标记删除并返回 404。
+- DELETE /admin/backups/<id>：仅携带 Authorization: Bearer <ADMIN_TOKEN> 的管理员可调用。先删除又拍云对象，再将 D1 行标记为 deleted；重复请求可用于恢复中途失败的删除。请使用此接口管理删除，直接在又拍云控制台删文件会留下元数据，直到有人选择或打开该备份才会被发现。
 
-- `POST /backups`：`{id,name,creator,backup}`，成功返回 `{summary}`，ID 为 UUID v4。仅发布已保存的非空 v1 GCJ-02 标注，规范化 JSON 不超过 1 MB，请求体最多额外 4 KB。
-- `GET /backups?cursor=<last-id>&selectedId=<id>`：`{items,nextCursor?,selectedExists?}`，参数均可选，每页 20 项，按服务器上传时间和 ID 倒序。传入 `selectedId` 时返回该备份是否仍在索引中且对应普通 JSON 文件存在；无效 ID 返回 400。
-- `GET /backups/<id>`：`{summary,backup}`；JSON 仍可用原来的导入功能读取。
-- `summary` 包含 `id,name,creator,createdAt,places,routes,byteSize`。
-- GitHub 一次提交写入 `backups/<id>.json` 和 `index.json`；基于最新树创建，非强制推进 `main`，避免覆盖其他文件。并发冲突最多重试三次。
-- 相同 ID、名称、创建者和备份重复上传返回原结果；更改内容使用新 ID，已有 ID 的不同内容返回冲突。读取用同一提交版本取得索引和文件。
-- 索引上限为 4 MB，超出时停止接收新备份并提示维护者处理；读取不会悄悄截断列表。
-- 列表用三次 GitHub 请求读取分支提交、该提交的索引和递归文件树。仅显示存在的普通 `backups/<id>.json` 文件；在完整索引中定位游标后过滤，因此游标文件被删除也能继续分页。文件树最多读取 8 MB；截断、格式错误、限流或故障返回错误，不能用不完整文件树推断删除。
-- 错误统一为 `{error:{code}}`，覆盖非法输入、大小、来源、找不到、冲突、限流、凭据和服务故障；不会向浏览器返回令牌或上游请求详情。
+所有公开响应保持 Cache-Control: no-store。上传按 IP 每分钟最多 3 次，沿用原来的跨域白名单。又拍云或 D1 达到用量上限时，接口应返回明确错误，不返回截断列表。没有上传者登录或网站删除入口；共享 JSON 及其名称、创建者对网站访客可见。
 
-本版本没有登录、上传者身份验证或网站删除入口。名称及 JSON 公开，包括 Git 提交历史。管理员仅删除 JSON 文件即可在刷新后隐藏该条目，索引保持不变；恢复同名文件后条目重新显示。确认当前查看的备份已删除时，前端清空共享地图和详情、重置筛选、禁用下载；个人标注不变。读取失败保留当前地图，旧请求不会覆盖新选择。
+管理员删除示例（先在当前 PowerShell 会话中设置自己的令牌）：
 
-## 隔离验证
+    $env:TONGJI_ADMIN_TOKEN = '<ADMIN_TOKEN>'
+    $backupId = '<要删除的 UUID>'
+    Invoke-RestMethod -Method Delete -Uri "https://tongji-health-map-backups.lgy0822.workers.dev/admin/backups/$backupId" -Headers @{ Authorization = "Bearer $env:TONGJI_ADMIN_TOKEN" }
 
-```powershell
-npm.cmd test
-npm.cmd run shared:dry-run
-# 以下仅启动模拟 GitHub 的测试 API，不写公共仓库
-npm.cmd run test:shared:preview
-# 将 .env.local 的 NEXT_PUBLIC_SHARED_BACKUPS_API_URL 设置为 http://localhost:8788
-# 在另一个终端启动前端
-npm.cmd run dev
-```
+## 隔离验证与上线检查
 
-模拟接口仅用于验证，不得发布 `tests/shared-preview.wrangler.jsonc`；生产部署脚本只引用 `shared-backups-worker/wrangler.jsonc`。测试入口固定使用内存 GitHub 模拟器和虚拟令牌，不读取真实 GitHub 凭据，不写公共仓库；重启后模拟备份消失。仅测试入口提供 `POST /__test/backups/<id>/delete-file`，生成仅删除 JSON、保留索引的模拟提交；生产入口没有此接口。
+    npm.cmd test
+    npm.cmd run test:shared:db
+    npm.cmd run test:shared:preview
 
-在 PowerShell 中模拟删除，然后在网页刷新列表：
+预览 Worker 使用本地 D1 与内存模拟又拍云，不会读取真实凭据或写入真实服务。它仅供测试，提供 POST /__test/backups/<id>/delete-file 以模拟文件丢失；生产 Worker 没有此路径。
 
-```powershell
-$testBackups = Invoke-RestMethod http://localhost:8788/backups
-$testBackupId = $testBackups.items[0].id
-Invoke-RestMethod -Method Post "http://localhost:8788/__test/backups/$testBackupId/delete-file"
-```
+上线前，在国内同一网络记录旧接口 GET /backups 和一条 GET /backups/<id> 的浏览器 Network 耗时；上线后用新备份重复测量。再用两个独立浏览器验证上传、列表、只读加载、删除以及个人标注保持不变。检查 Worker 错误和 D1 读写用量；D1 免费额度耗尽时查询会失败。由于浏览器仍访问 workers.dev，提速幅度以实际测量为准。

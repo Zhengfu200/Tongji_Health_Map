@@ -1,5 +1,13 @@
 # 共享备份验证记录
 
+## 又拍云 + D1 迁移（2026-09-30）
+
+- 已在 Cloudflare 账号创建亚太区域 D1 数据库 tongji-shared-backups，并应用初始表迁移；生产库无备份记录，按既定选择从空列表开始。
+- 本地 47 项测试通过，覆盖 D1 分页、又拍云签名、首次创建目录、上传重试、管理删除、缺失文件、限流与现有前端只读视图；Next typegen、类型检查、Vinext 构建及 Worker dry-run 构建通过。
+- 本地 Wrangler 预览使用真实本地 D1 与内存模拟存储，空列表、上传、详情、模拟删除及 selectedExists 正常。又用本地 Worker、本地 D1 和真实又拍云服务 tongji-health-map 完成小型备份上传、读取、同 ID 重试和删除。第一次删除遇到又拍云临时 429，稍后重试成功；第二次完整联调全部成功。测试备份均已删除。
+- 已设置生产 Worker 的 UPYUN_PASSWORD 和 ADMIN_TOKEN Secret，部署版本 e1df119d-f443-4273-92cc-bdfa71527c6e，并移除旧 GITHUB_TOKEN Secret。部署绑定为服务 tongji-health-map、操作员 zhengfu202 和 D1 tongji-shared-backups。
+- 当前网络的 workers.dev 域名解析到了非 Cloudflare 地址，直连生产 URL 超时，远程预览请求也无法完成。因此尚未从浏览器完成生产上传、读取、删除和切换前后耗时对比；国内访问仍受 workers.dev 可达性影响。以下旧记录只描述此前 GitHub 版本。
+
 验证日期：2026-09-29。
 
 ## 删除文件自动隐藏：本地验收记录

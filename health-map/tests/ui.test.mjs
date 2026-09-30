@@ -97,7 +97,7 @@ test('selected walking endpoints are not connected before an actual plan exists'
 
 
 
-const sharedFixture = (await import('./shared-github-mock.mjs')).fixtureBackup;
+const sharedFixture = (await import('./shared-upyun-mock.mjs')).fixtureBackup;
 function sharedItem(name='公开备份', creator='同学 A') { return { id: crypto.randomUUID(), name, creator, createdAt:'2026-09-29T08:00:00Z', places:1, routes:1, byteSize:800 }; }
 test('shared backup renders places and routes read-only, filters, and restores personal annotations unchanged',async()=>{
   const item=sharedItem();
