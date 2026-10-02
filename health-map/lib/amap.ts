@@ -1,9 +1,11 @@
 import { CAMPUS_CENTER, CATEGORIES, isCoordinate, validPath, recordName, type Coordinate, type Language, type MapRecord } from './model.ts';
 import { createCategoryIcon } from './category-icons.ts';
+import { SEARCH_RADIUS, SEARCH_PAGE_SIZE, searchKeywords, rankPlaces, type SearchResult, type SearchPage, type SearchCursor } from './place-search.ts';
+import { pathDistance } from './model.ts';
+export type { SearchResult, SearchPage, SearchCursor } from './place-search.ts';
 
 // The dynamically loaded SDK is contained in this adapter; app state never stores SDK objects.
 type SDK = Record<string, any>;
-export interface SearchResult { id: string; name: string; address: string; position: Coordinate }
 export interface WalkResult { points: Coordinate[]; distance: number; duration: number }
 export interface MapDraft { kind: 'place' | 'route' | 'walking'; position?: Coordinate; points?: Coordinate[]; editable?: boolean; connect?: boolean; endpointsOnly?: boolean }
 export interface MapCallbacks { click: (p: Coordinate) => void; select: (id: string) => void; placeMove: (p: Coordinate) => void; routeMove: (p: Coordinate[]) => void }
@@ -25,7 +27,7 @@ export function loadAMap(key: string, securityCode: string): Promise<SDK> {
   }
   return (loaderPromise || Promise.resolve()).then(() => {
     if (!window.AMapLoader) throw new Error('MAP_LOAD_FAILED');
-    return withDeadline(window.AMapLoader.load({ key, version: '2.0', plugins: ['AMap.Scale', 'AMap.PlaceSearch', 'AMap.Walking', 'AMap.PolylineEditor'] }), 18000);
+    return withDeadline(window.AMapLoader.load({ key, version: '2.0', plugins: ['AMap.Scale', 'AMap.PlaceSearch', 'AMap.AutoComplete', 'AMap.Walking', 'AMap.PolylineEditor'] }), 18000);
   });
 }
 export function withDeadline<T>(promise: Promise<T>, ms = 12000): Promise<T> {
@@ -38,20 +40,58 @@ function coordinate(value: any): Coordinate | undefined {
   const p = Array.isArray(value) ? value : [value?.getLng?.() ?? value?.lng, value?.getLat?.() ?? value?.lat];
   return isCoordinate(p) ? [p[0], p[1]] : undefined;
 }
-export function searchPlaces(sdk: SDK, query: string): Promise<SearchResult[]> {
-  return withDeadline(new Promise((resolve, reject) => {
-    const search = new sdk.PlaceSearch({ city: '上海', citylimit: true, pageSize: 20, extensions: 'base' });
-    search.searchNearBy(query.trim(), CAMPUS_CENTER, 1800, (status: string, result: any) => {
-      if (status === 'no_data') return resolve([]);
+export async function searchPlaces(sdk: SDK, query: string): Promise<SearchResult[]> {
+  return (await searchPlacesPage(sdk, query)).results;
+}
+export async function searchPlacesPage(sdk: SDK, query: string, cursor?: SearchCursor[]): Promise<SearchPage> {
+  if (!query.trim()) return { results: [], next: [] };
+  const requests = cursor ?? searchKeywords(query).map(keyword => ({ keyword, page: 1 }));
+  // Space variant requests out, including fast SDK cache hits, to avoid quota bursts.
+  const pages: SearchPage[] = [];
+  for (const { keyword, page } of requests) {
+    if (pages.length) await new Promise(resolve => setTimeout(resolve, 350));
+    pages.push(await withDeadline(new Promise<SearchPage>((resolve, reject) => {
+    const search = new sdk.PlaceSearch({ city: '上海', citylimit: true, type: '', pageSize: SEARCH_PAGE_SIZE, pageIndex: page, extensions: 'base' });
+    search.searchNearBy(keyword, CAMPUS_CENTER, SEARCH_RADIUS, (status: string, result: any) => {
+      if (status === 'no_data') return resolve({ results: [], next: [] });
       if (status !== 'complete') return reject(new Error('SEARCH_ERROR'));
       const pois = result?.poiList?.pois;
       if (!Array.isArray(pois)) return reject(new Error('SEARCH_ERROR'));
-      resolve(pois.flatMap((poi: any) => {
+      const results: SearchResult[] = pois.flatMap((poi: any) => {
         const position = coordinate(poi.location);
-        return position && typeof poi.name === 'string' ? [{ id: String(poi.id || poi.name), name: poi.name, address: typeof poi.address === 'string' ? poi.address : '', position }] : [];
-      }));
+        if (!position || typeof poi.name !== 'string' || !poi.name.trim()) return [];
+        const distance = pathDistance([CAMPUS_CENTER, position]);
+        if (distance > SEARCH_RADIUS) return [];
+        const address = [poi.pname, poi.cityname, poi.adname, poi.address].filter(v => typeof v === 'string' && v.trim()).join(' ');
+        return [{ id: String(poi.id || `${poi.name}:${position.join(',')}`), name: poi.name, address, position, type: typeof poi.type === 'string' ? poi.type : '', distance }];
+      });
+      const count = Number(result.poiList.count);
+      const hasMore = pois.length > 0 && (Number.isFinite(count) ? page * SEARCH_PAGE_SIZE < count : pois.length >= SEARCH_PAGE_SIZE);
+      resolve({ results, next: hasMore && page < 100 ? [{ keyword, page: page + 1 }] : [] });
     });
-  }));
+  })));
+  }
+  // The suggestion index includes campus buildings missing from nearby search.
+  // Suggestions without an actual coordinate (e.g. district-only tips) cannot be selected.
+  let suggestions: SearchResult[] = [];
+  if (!cursor && sdk.AutoComplete) {
+    try {
+      suggestions = await withDeadline(new Promise<SearchResult[]>((resolve, reject) => {
+        new sdk.AutoComplete({ city: '上海', citylimit: true }).search(query.trim(), (status: string, result: { tips?: { id?: string; name?: string; district?: string; address?: string; location?: unknown }[] }) => {
+          if (status === 'no_data') return resolve([]);
+          if (status !== 'complete' || !Array.isArray(result?.tips)) return reject(new Error('SUGGESTION_ERROR'));
+          resolve(result.tips.flatMap(tip => {
+            const position = coordinate(tip.location);
+            if (!position || typeof tip.name !== 'string' || !tip.name.trim()) return [];
+            const distance = pathDistance([CAMPUS_CENTER, position]);
+            if (distance > SEARCH_RADIUS) return [];
+            return [{ id: String(tip.id || `${tip.name}:${position.join(',')}`), name: tip.name, address: [tip.district, tip.address].filter(v => typeof v === 'string' && v.trim()).join(' '), position, distance }];
+          }));
+        });
+      }), 6000);
+    } catch { /* Nearby results remain usable when optional suggestions are unavailable. */ }
+  }
+  return { results: rankPlaces([...pages.flatMap(p => p.results), ...suggestions], query), next: pages.flatMap(p => p.next) };
 }
 export function planWalking(sdk: SDK, start: Coordinate, end: Coordinate): Promise<WalkResult> {
   if (!isCoordinate(start) || !isCoordinate(end) || !validPath([start, end])) return Promise.reject(new Error('INVALID_ENDPOINTS'));

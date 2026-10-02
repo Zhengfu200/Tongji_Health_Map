@@ -162,6 +162,39 @@ test('search results require confirmation before being added',async()=>{
   await mount();fireEvent.change(screen.getByPlaceholderText(/搜索校园地点/),{target:{value:'食堂'}});fireEvent.submit(screen.getByRole('textbox',{name:'搜索'}).closest('form'));
   await screen.findByText('测试资源');assert.equal(window.localStorage.getItem(STORAGE_KEY),null);fireEvent.click(screen.getByText('测试资源'));fireEvent.click(screen.getByRole('button',{name:'确认并添加地点'}));assert.equal(screen.getByLabelText('中文名称 *').value,'测试资源');fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));assert.equal(saved()[0].address,'测试地址');
 });
+
+test('editing a search query ignores late responses from the previous query',async()=>{
+  const callbacks=[];
+  sdk.PlaceSearch=class { searchNearBy(query,center,radius,callback){callbacks.push({query,callback});} };
+  await mount();
+  const input=screen.getByRole('textbox',{name:'搜索'});
+  fireEvent.change(input,{target:{value:'旧查询'}});fireEvent.submit(input.closest('form'));
+  fireEvent.change(input,{target:{value:'新查询'}});fireEvent.submit(input.closest('form'));
+  await act(async()=>callbacks.find(c=>c.query==='新查询').callback('complete',{poiList:{count:1,pois:[{id:'new',name:'新地点',location:{lng:121.5016,lat:31.2848}}]}}));
+  await screen.findByText('新地点');
+  await act(async()=>callbacks.find(c=>c.query==='旧查询').callback('complete',state.searchResult));
+  assert.equal(screen.queryByText('测试资源'),null);assert.ok(screen.getByText('新地点'));
+});
+
+test('load more retains first page on failure, supports retry and avoids duplicates',async()=>{
+  let fail=true;
+  sdk.PlaceSearch=class {
+    constructor(options){this.page=options.pageIndex;}
+    searchNearBy(query,center,radius,cb){
+      if(this.page===2&&fail)return queueMicrotask(()=>cb('error',{}));
+      const pois=[{id:'one',name:'第一地点',location:{lng:121.5016,lat:31.2848}},...(this.page===2?[{id:'two',name:'第二地点',location:{lng:121.502,lat:31.285}}]:[])];
+      queueMicrotask(()=>cb('complete',{poiList:{count:51,pois}}));
+    }
+  };
+  await mount();const input=screen.getByRole('textbox',{name:'搜索'});
+  fireEvent.change(input,{target:{value:'地点'}});fireEvent.submit(input.closest('form'));
+  fireEvent.click(await screen.findByRole('button',{name:'加载更多地点'}));
+  await screen.findByText(/搜索失败/);assert.ok(screen.getByText('第一地点'));
+  fail=false;fireEvent.click(screen.getByRole('button',{name:'加载更多地点'}));
+  await screen.findByText('第二地点');assert.equal(screen.getAllByText('第一地点').length,1);
+  assert.equal(screen.queryByRole('button',{name:'加载更多地点'}),null);
+  assert.equal(localStorage.getItem(STORAGE_KEY),null);
+});
 test('quota failure retains original record and shows failure without success',async()=>{
   await mount();await addPlace();fireEvent.click(screen.getByRole('button',{name:'编辑',exact:true}));fireEvent.change(screen.getByLabelText('中文名称 *'),{target:{value:'不能保存的修改'}});
   const original=dom.window.Storage.prototype.setItem;dom.window.Storage.prototype.setItem=()=>{throw new Error('QuotaExceededError');};

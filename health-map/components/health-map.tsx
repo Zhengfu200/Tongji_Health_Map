@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { AMapController, loadAMap, planWalking, searchPlaces, type MapDraft, type SearchResult, type WalkResult } from '@/lib/amap';
+import { AMapController, loadAMap, planWalking, searchPlacesPage, type SearchCursor, type MapDraft, type SearchResult, type WalkResult } from '@/lib/amap';
+import { rankPlaces } from '@/lib/place-search';
 import { CATEGORIES, CATEGORY_IDS, EMPTY_DATA, LANGUAGE_KEY, MAX_BACKUP_BYTES, STORAGE_KEY, isCoordinate, parseBackup, pathDistance, recordName, saveBackup, validPath, type Backup, type Category, type Coordinate, type Language, type MapRecord, type Place, type Route } from '@/lib/model';
 import { copy, type CopyKey } from '@/lib/i18n';
 import { SharedBackupPanel, SharedUploadDialog } from '@/components/shared-backup-panel';
@@ -51,6 +52,8 @@ export default function HealthMap() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[] | undefined>();
   const [searchPending, setSearchPending] = useState(false);
+  const [searchCursor, setSearchCursor] = useState<SearchCursor[]>([]);
+  const [searchedQuery, setSearchedQuery] = useState('');
   const [searchError, setSearchError] = useState<CopyKey>();
   const [preview, setPreview] = useState<SearchResult>();
   const [confirmation, setConfirmation] = useState<Confirmation>();
@@ -173,11 +176,24 @@ export default function HealthMap() {
     controller.current?.focus(record.kind === 'place' ? [record.position] : record.points);
   }
   function startDraw(points: Coordinate[] = []) { walkingSequence.current++; setSelectedId(undefined); setPreview(undefined); setMode({ kind: 'draw', points }); setPanelOpen(true); }
-  async function runSearch() {
-    if (!query.trim() || !mapEnabled || active || !controller.current) return;
+  function clearSearch() {
+    searchSequence.current++; setResults(undefined); setSearchCursor([]); setSearchError(undefined); setSearchPending(false); setPreview(undefined);
+  }
+  async function runSearch(more = false) {
+    if (!query.trim() || !mapEnabled || active || !controller.current || searchPending) return;
+    if (more && (!searchCursor.length || query !== searchedQuery)) return;
     const sequence = ++searchSequence.current;
-    setSearchPending(true); setSearchError(undefined); setResults(undefined); setPreview(undefined);
-    try { const found = await searchPlaces(controller.current.sdk, query); if (sequence === searchSequence.current) { setResults(found); if (!found.length) setSearchError('searchEmpty'); } }
+    const capturedQuery = query;
+    setSearchPending(true); setSearchError(undefined);
+    if (!more) { setResults(undefined); setSearchCursor([]); setPreview(undefined); }
+    try {
+      const page = await searchPlacesPage(controller.current.sdk, capturedQuery, more ? searchCursor : undefined);
+      if (sequence === searchSequence.current) {
+        const found = rankPlaces([...(more ? results || [] : []), ...page.results], capturedQuery);
+        setResults(found); setSearchCursor(page.next); setSearchedQuery(capturedQuery);
+        if (!found.length && !page.next.length) setSearchError('searchEmpty');
+      }
+    }
     catch { if (sequence === searchSequence.current) setSearchError('searchError'); }
     finally { if (sequence === searchSequence.current) setSearchPending(false); }
   }
@@ -330,8 +346,8 @@ export default function HealthMap() {
           {sharedView && sharedBackups.length > 0 && <div className="shared-banner"><b>{t('selectedShared')}: {sharedBackups.length}</b><span>{sharedBackups.map(value => value.summary.name).join(' · ')}</span><small>{t('sharedReadonly')}</small><Button variant="outline" size="sm" onClick={() => switchSource(false)}>{t('returnMine')}</Button></div>}
           {storageBlocked && <p className="inline-error" role="alert">{t('restoreError')}</p>}
           {mode.kind === 'place' || mode.kind === 'route' ? renderForm() : mode.kind === 'walking' ? renderWalking() : mode.kind === 'draw' ? <section className="editor drawing-panel"><span className="section-icon"><RouteIcon /></span><h2>{t('drawing')}</h2><p className="instruction">{t('drawingHelp')}</p><div className="route-stats"><span>{t('vertices')}<b>{mode.points.length}</b></span><span>{t('routeLength')}<b>{distance(pathDistance(mode.points))}</b></span></div><Button variant="outline" className="full-width" disabled={!mode.points.length} onClick={() => setMode({ ...mode, points: mode.points.slice(0,-1) })}><Undo2 />{t('undo')}</Button><Button className="full-width" disabled={!validPath(mode.points)} onClick={() => setMode({ kind: 'route', record: makeRoute(mode.points), editable: true })}><Check />{t('finish')}</Button><Button variant="ghost" className="full-width" onClick={cancel}>{t('cancel')}</Button></section> : selected ? renderDetails() : sharedView && !sharedBackups.length ? null : <>
-            {!sharedView && <section className="search-section"><div className="section-heading"><h1>{t('resources')}</h1><span className="small-badge">{t('campus')}</span></div><form className="search-box" onSubmit={e => { e.preventDefault(); void runSearch(); }}><Search size={18} /><Input aria-label={t('search')} placeholder={t('searchPlaceholder')} value={query} disabled={!mapEnabled} maxLength={100} onChange={e => setQuery(e.target.value)} /><Button type="submit" size="icon-sm" disabled={!mapEnabled || !query.trim() || searchPending} aria-label={t('search')}><Search size={16} /></Button></form></section>}
-            {(results !== undefined || searchError || searchPending) && <section className="search-results"><div className="section-heading"><h2>{t('searchResults')}</h2><Button variant="ghost" size="icon-sm" aria-label={t('close')} onClick={() => { searchSequence.current++; setResults(undefined); setSearchError(undefined); setSearchPending(false); setPreview(undefined); }}><X /></Button></div>{searchPending && <p className="subtle" role="status">{t('searchBusy')}</p>}{searchError && <p className="subtle" role="status">{t(searchError)}</p>}{results?.map(poi => <div key={poi.id} className={`search-result ${preview?.id === poi.id ? 'selected' : ''}`}><button onClick={() => setPreview(poi)}><MapPin size={18} /><span><b>{poi.name}</b><small>{poi.address}</small></span></button>{preview?.id === poi.id && <Button size="sm" className="full-width" onClick={() => preparePlace(poi.position, poi)}>{t('confirmPlace')}</Button>}</div>)}</section>}
+            {!sharedView && <section className="search-section"><div className="section-heading"><h1>{t('resources')}</h1><span className="small-badge">{t('campus')}</span></div><form className="search-box" onSubmit={e => { e.preventDefault(); void runSearch(); }}><Search size={18} /><Input aria-label={t('search')} placeholder={t('searchPlaceholder')} value={query} disabled={!mapEnabled} maxLength={100} onChange={e => { setQuery(e.target.value); clearSearch(); }} /><Button type="submit" size="icon-sm" disabled={!mapEnabled || !query.trim() || searchPending} aria-label={t('search')}><Search size={16} /></Button></form></section>}
+            {(results !== undefined || searchError || searchPending) && <section className="search-results"><div className="section-heading"><h2>{t('searchResults')}</h2><Button variant="ghost" size="icon-sm" aria-label={t('close')} onClick={clearSearch}><X /></Button></div>{searchPending && <p className="subtle" role="status">{t('searchBusy')}</p>}{searchError && <p className="subtle" role="status">{t(searchError)}</p>}{results?.map(poi => <div key={poi.id} className={`search-result ${preview?.id === poi.id ? 'selected' : ''}`}><button onClick={() => setPreview(poi)}><MapPin size={18} /><span><b>{poi.name}</b><small>{poi.address}</small><small>{poi.type} · {t('fromCampus')} {distance(poi.distance || 0)}</small></span></button>{preview?.id === poi.id && <Button size="sm" className="full-width" onClick={() => preparePlace(poi.position, poi)}>{t('confirmPlace')}</Button>}</div>)}{searchCursor.length > 0 && <Button variant="outline" className="full-width" disabled={searchPending || !mapEnabled} onClick={() => void runSearch(true)}>{t('moreSearch')}</Button>}</section>}
             <section className="category-section"><div className="category-grid"><button className={`category-chip ${filter === 'all' ? 'selected' : ''}`} onClick={() => { setFilter('all'); setPreview(undefined); }}><Layers size={18} />{t('all')}<span>{displayData.records.length}</span></button>{CATEGORY_IDS.map(id => <button className={`category-chip ${filter === id ? 'selected' : ''}`} style={{ '--category-color': CATEGORIES[id].color } as CSSProperties} key={id} onClick={() => { setFilter(id); setPreview(undefined); }}><CategoryIcon category={id} />{CATEGORIES[id][language]}<span>{displayData.records.filter(r => r.category === id).length}</span></button>)}<button className={`category-chip ${filter === 'relaxation' ? 'selected' : ''}`} onClick={() => { setFilter('relaxation'); setPreview(undefined); }}><RouteIcon size={18} />{t('relaxation')}<span>{displayData.records.filter(r => r.kind === 'route').length}</span></button></div></section>
             <section className="annotations"><div className="section-heading"><h2>{t(sharedView ? 'sharedAnnotations' : 'saved')}</h2><span className="annotation-count">{visible.length}</span></div>{visible.length ? <div className="record-list">{visible.map(r => <button className="record-card" key={r.id} onClick={() => selectRecord(r)}><span className="record-icon" style={{ color: r.kind === 'place' ? CATEGORIES[r.category].color : '#007da3' }}>{r.kind === 'place' ? <CategoryIcon category={r.category} size={22} /> : <RouteIcon size={20} />}</span><span><b>{recordName(r, language)}</b><small>{r.kind === 'place' ? CATEGORIES[r.category][language] : `${t('relaxation')} · ${distance(r.distance)}`}</small></span><ChevronDown className="card-chevron" size={16} /></button>)}</div> : <div className="empty-state"><span><MapPin size={28} /></span><h3>{filter === 'all' ? t('emptyTitle') : t('filteredEmpty')}</h3><p>{t('emptyBody')}</p></div>}</section>
           </>}

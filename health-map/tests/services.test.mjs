@@ -5,7 +5,7 @@ import { createMockSdk } from './mock-sdk.mjs';
 test('campus search returns coordinates and ignores invalid POIs',async()=>{
   const {sdk,state}=createMockSdk();state.searchResult.poiList.pois.push({name:'bad',location:{lng:undefined,lat:31}});
   const found=await searchPlaces(sdk,'食堂');assert.equal(found.length,1);assert.deepEqual(found[0].position,[121.5017,31.285]);
-  assert.equal(state.calls[0].options.city,'上海');assert.equal(state.calls[0].radius,1800);
+  assert.equal(state.calls[0].options.city,'上海');assert.equal(state.calls[0].radius,3000);
 });
 test('search distinguishes no data and network/API error',async()=>{
   const {sdk,state}=createMockSdk();state.searchStatus='no_data';assert.deepEqual(await searchPlaces(sdk,'x'),[]);
