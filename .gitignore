@@ -16,6 +16,10 @@
 **/*.pem
 **/*.key
 
-# Preserve the detailed local guide; the repository README is intentionally empty.
+# Preserve the detailed local guide outside version control.
 /health-map/README.md
 /health-map/0
+
+# Local agent instructions
+**/agent.md
+**/AGENTS.md
